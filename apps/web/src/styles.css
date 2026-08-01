@@ -1,0 +1,11 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #1d2733; background: #f7f8fa; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app-shell { min-height: 100vh; }
+.app-header { align-items: center; background: #fff; border-bottom: 1px solid #e6e8eb; display: flex; justify-content: space-between; min-height: 64px; padding: 0 24px; }
+.brand { color: inherit; font-weight: 700; text-decoration: none; }
+.system-status { color: #59636e; font-size: .875rem; }
+.content { margin: 0 auto; max-width: 960px; padding: 48px 24px; }
+.eyebrow { color: #52667e; font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.placeholder { background: #fff; border: 1px dashed #b8c1cb; border-radius: 10px; margin-top: 32px; padding: 40px 24px; text-align: center; }
+@media (max-width: 360px) { .app-header { align-items: flex-start; flex-direction: column; gap: 6px; padding: 16px; } .content { padding: 32px 16px; } }

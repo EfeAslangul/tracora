@@ -1,0 +1,23 @@
+name: Bug
+description: Hata bildirimi
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: Hata
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Tekrar Adımları
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Beklenen Sonuç
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Log veya Görsel

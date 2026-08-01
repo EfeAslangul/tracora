@@ -1,0 +1,24 @@
+name: Feature
+description: Yeni özellik
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: textarea
+    attributes:
+      label: Amaç
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Acceptance Criteria
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Owner
+      options:
+        - Efe - Backend
+        - Haydar - Frontend/Product
+        - Ortak
+    validations:
+      required: true

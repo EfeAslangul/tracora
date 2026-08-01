@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-product_tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-product_tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-product_tracker}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  changedetection:
+    image: dgtlmoon/changedetection.io:0.49.0
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    volumes:
+      - changedetection_data:/datastore
+
+volumes:
+  postgres_data:
+  changedetection_data:
