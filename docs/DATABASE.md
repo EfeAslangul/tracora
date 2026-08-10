@@ -3,9 +3,11 @@
 ## Store
 
 - id UUID
-- code varchar unique
+- hostname varchar unique
 - name varchar
-- hostnames jsonb
+- profileKey varchar default `generic`
+- profileVersion integer
+- profileStatus enum (`GENERIC`, `VERIFIED`, `DISABLED`)
 - active boolean
 - createdAt
 - updatedAt
@@ -37,6 +39,8 @@ Unique:
 ```text
 (storeId, normalizedUrl)
 ```
+
+Her public hostname ilk ürün eklenirken `GENERIC` store olarak oluşturulabilir. Sonradan doğrulanmış bir site profile eklendiğinde aynı Store kaydı `profileKey/profileVersion` ile güncellenir.
 
 ## WatchBinding
 
@@ -92,6 +96,48 @@ Yalnız önemli durum ve hatalar:
 - value jsonb
 - updatedAt
 
+MVP anahtarları:
+
+```text
+onboarding.completedAt
+checks.defaultIntervalSeconds = 86400
+reconciliation.lastCompletedAt
+```
+
+Secret değerler `AppSetting` içinde tutulmaz.
+
+## NotificationDelivery
+
+- id UUID
+- productId UUID
+- sourceEventKey varchar
+- channel enum (`TELEGRAM`)
+- type enum (`PRICE_CHANGED`, `TARGET_REACHED`, `RESTOCKED`, `WATCH_ERROR`)
+- status enum (`PENDING`, `PROCESSING`, `SENT`, `FAILED`)
+- payload jsonb
+- attempts integer default 0
+- nextAttemptAt timestamp nullable
+- lockedAt timestamp nullable
+- sentAt timestamp nullable
+- lastErrorCode varchar nullable
+- lastErrorMessage text nullable
+- createdAt
+- updatedAt
+
+Unique:
+
+```text
+(sourceEventKey, channel, type)
+```
+
+Index:
+
+```text
+(status, nextAttemptAt)
+```
+
+Outbox worker `PENDING` veya zamanı gelmiş `FAILED` kayıtlarını atomik olarak `PROCESSING` durumuna alır. Süresi geçmiş lock'lar restart sonrası tekrar kuyruğa alınır. Maksimum 5 deneme ve artan gecikme uygulanır.
+
 ## ER
 
 ```mermaid
@@ -101,4 +147,5 @@ erDiagram
     PRODUCT ||--o{ PRICE_SNAPSHOT : has
     PRODUCT ||--o{ STOCK_SNAPSHOT : has
     PRODUCT ||--o{ EVENT_LOG : has
+    PRODUCT ||--o{ NOTIFICATION_DELIVERY : notifies
 ```

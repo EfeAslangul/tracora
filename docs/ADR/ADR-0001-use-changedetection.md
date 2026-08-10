@@ -17,8 +17,7 @@ changedetection.io ayrı Docker servisi olarak kullanılacaktır.
 - restock/price detection
 - schedule
 - Apprise
-- Telegram
-- JSON webhook
+- NestJS'e JSON webhook
 
 ## Kullanılmayacak Yaklaşım
 

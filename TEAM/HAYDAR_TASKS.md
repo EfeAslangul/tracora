@@ -14,7 +14,7 @@ Backend'in primary owner'ı Efe'dir. Haydar backend'i mikro yönetmez; ürün ka
 ## 2. Ürün Yönetimi
 
 - MVP kapsamını koru.
-- Spike sonucuna göre ilk mağazayı onayla.
+- Genel profil acceptance sınırlarını ve yeni site ekleme önceliğini yönet.
 - Acceptance criteria yaz.
 - Backlog önceliklendir.
 - Sprint hedeflerini belirle.
@@ -67,6 +67,16 @@ src/
 
 ## 6. MVP Ekranları
 
+### İlk Açılış URL Wizard'ı
+
+- `GET /setup/status` ile server-side route kararı
+- 1..20 URL için satır ekleme/silme veya çok satırlı giriş
+- URL bazında hedef fiyat ve bildirim tercihi
+- partial success sonucunda oluşturulan/başarısız URL'leri ayrı gösterme
+- en az bir başarıdan sonra ürün listesine geçme
+- sonraki başlangıçlarda wizard'ı göstermeme
+- onboarding kararını local storage'a yazmama
+
 ### Ürün Listesi
 
 - ürün kartları
@@ -101,7 +111,7 @@ src/
 
 ### Sistem Durumu
 
-Ayrı sayfa yerine header veya küçük panel olabilir.
+Ayrı sayfa yerine header veya küçük panel olabilir. Telegram `not_configured/degraded` durumu kullanıcıya gösterilir; secret UI'da alınmaz veya görüntülenmez.
 
 Dashboard MVP sonunda eklenebilir; ilk çalışan sürüm için zorunlu değildir.
 
@@ -130,18 +140,20 @@ Haydar:
 
 ## 9. Acceptance Testleri
 
-1. Desteklenen mağazadan ürün ekle.
-2. Geçersiz domain dene.
-3. Aynı URL'yi iki kez ekle.
-4. changedetection.io kapalıyken ürün ekle.
-5. FAILED üründe yeniden dene.
-6. Manuel check başlat.
-7. Fiyat webhook'u işle.
-8. Duplicate webhook gönder.
-9. Telegram bildirimi doğrula.
-10. Ürün sil.
-11. Docker Compose yeniden başlat.
-12. PostgreSQL ve datastore kalıcılığını kontrol et.
+1. İlk açılışta birden çok public URL ekle.
+2. Setup partial success sonucunu doğrula.
+3. Restart sonrası onboarding'in açılmadığını doğrula.
+4. Geçersiz ve private-network URL dene.
+5. Aynı URL'yi iki kez ekle.
+6. changedetection.io kapalıyken ürün ekle.
+7. Genel profilin ayrıştıramadığı domain hata deneyimini kontrol et.
+8. FAILED üründe yeniden dene.
+9. Manuel check başlat.
+10. Fiyat webhook'u ve duplicate webhook işle.
+11. Telegram tekil mesaj ve retry davranışını doğrula.
+12. Ürün sil.
+13. Docker Compose yeniden başlat.
+14. PostgreSQL, onboarding ve watch schedule kalıcılığını kontrol et.
 
 ## 10. Mimari Review
 
@@ -163,10 +175,11 @@ Kontrol soruları:
 - GitHub Project
 - React scaffold
 - Docker koordinasyonu
-- spike acceptance
+- generic site spike acceptance
 
 ### Sprint 1
 
+- ilk açılış URL wizard'ı
 - ürün listesi
 - ürün ekleme
 - mock API
@@ -181,7 +194,7 @@ Kontrol soruları:
 
 ### Sprint 3
 
-- Telegram ayarı
+- Telegram health ve mesaj acceptance
 - sistem health göstergesi
 - responsive
 - accessibility

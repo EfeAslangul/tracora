@@ -2,7 +2,9 @@
 
 ## 1. Proje Amacı
 
-Kullanıcının teknik changedetection.io ekranlarına girmeden ürün ekleyebildiği, fiyat ve stok değişimlerini izleyebildiği, hedef fiyat belirleyebildiği ve Telegram bildirimi alabildiği sade bir uygulama geliştirmek.
+Kullanıcının teknik changedetection.io ekranlarına girmeden herhangi bir herkese açık ürün URL'sini ekleyebildiği, fiyat ve stok değişimlerini günde bir kez izleyebildiği, hedef fiyat belirleyebildiği ve Telegram bildirimi alabildiği sade bir uygulama geliştirmek.
+
+Sistem belirli mağazalara gömülü olmayacaktır. Yeni bir domain için önce genel profil denenir; daha özel bir seçim/fetch ihtiyacı varsa çekirdek akış değiştirilmeden yeni bir site profili eklenir. Login, CAPTCHA veya çözülemeyen anti-bot koruması bulunan her sitenin başarıyla ayrıştırılması garanti edilmez; bu durum kullanıcıya açık bir hata koduyla gösterilir.
 
 changedetection.io şu görevleri üstlenecektir:
 
@@ -12,12 +14,12 @@ changedetection.io şu görevleri üstlenecektir:
 - Değişiklik tespiti
 - Kontrol zamanlama
 - Fiyat/stok değişiklikleri
-- Apprise üzerinden bildirim
+- Apprise üzerinden NestJS'e sürümlü JSON webhook teslimi
 
 Bizim uygulamamız şu görevleri üstlenecektir:
 
 - Ürün odaklı domain modeli
-- Mağaza profilleri
+- Genel profil ve sonradan eklenebilir site profilleri
 - changedetection.io REST adapter
 - Güvenli webhook receiver
 - PostgreSQL üzerinde temiz fiyat/stok geçmişi
@@ -67,8 +69,10 @@ Sorumlulukları:
 ## 3. MVP Kapsamı
 
 - Tek kullanıcı modu
-- İlk aşamada tek mağaza
-- URL ile ürün ekleme
+- Herkese açık HTTP/HTTPS ürün URL'leri
+- İlk açılışta çoklu URL onboarding ekranı
+- Sonraki açılışlarda doğrudan ürün listesi
+- Genel profil + domain bazlı site profili fallback'i
 - Ürün adı
 - Ürün görseli
 - Güncel fiyat
@@ -82,16 +86,17 @@ Sorumlulukları:
 - Fiyat geçmişi grafiği
 - Son kontrol ve hata bilgisi
 - Telegram bildirimi
+- Varsayılan 24 saatlik kontrol aralığı
 - Docker Compose ile yerel kurulum
 
-## 4. Spike Sonrası Değerlendirilecek Özellikler
+## 4. Sonraki Sürümlerde Değerlendirilecek Özellikler
 
 - Beden/numara bazlı stok
-- İkinci mağaza
 - StockSnapshot ayrıntısı
 - Bir ürün için birden fazla watch
 - Browser Steps
-- Reconciliation sıklığı
+- Kullanıcı tarafından değiştirilebilir kontrol sıklığı
+- Login gerektiren ürün sayfaları
 
 ## 5. MVP Dışı
 
@@ -122,9 +127,11 @@ NestJS
 changedetection.io
    ├── Fetch / Browser
    ├── Scheduler
-   ├── Diff / Restock / Price
-   ├── Telegram / Apprise
+   ├── Diff / Restock / Price processor
    └── JSON Webhook → NestJS
+
+NestJS
+   └── Notification outbox → Telegram Bot API
 ```
 
 ## 7. Entegrasyon Stratejisi
@@ -161,7 +168,21 @@ Gecelik veya günlük basit cron:
 
 karşılaştırır.
 
-MVP'de ayrı queue sistemi yoktur.
+MVP'de ayrı queue sistemi yoktur. Telegram teslimatları PostgreSQL tabanlı küçük bir outbox ve NestJS cron işi ile tekrar denenir.
+
+### Günlük kontrol
+
+- Watch oluşturulunca başlangıç değerini almak için hemen bir kontrol tetiklenir.
+- Sonraki kontroller changedetection.io tarafından 24 saatte bir çalıştırılır.
+- Uygulama veya container yeniden başladığında fazladan kontrol tetiklenmez.
+- Kontrol planı changedetection.io datastore volume'unda, ürün ve tercih bilgileri PostgreSQL'de kalıcıdır.
+
+### Telegram
+
+- changedetection.io yalnız güvenli JSON webhook'u NestJS'e yollar.
+- NestJS normalize edilmiş fiyat/stok olayından bildirim politikasını değerlendirir.
+- Bildirim PostgreSQL outbox'a idempotent yazılır ve Telegram Bot API'ye gönderilir.
+- İlk deneme başarısızsa ayrı bir queue kurmadan sınırlı ve artan gecikmeli retry uygulanır.
 
 ## 8. Ürün Oluşturma Durum Akışı
 
@@ -173,8 +194,8 @@ PENDING
 
 Akış:
 
-1. URL doğrulanır.
-2. Store belirlenir.
+1. URL doğrulanır ve public internet hedefi olduğu güvenli şekilde kontrol edilir.
+2. Domain için özel profil aranır; yoksa genel profil seçilir.
 3. URL normalize edilir.
 4. Duplicate kontrol edilir.
 5. Product `PENDING` oluşturulur.
@@ -186,14 +207,15 @@ Akış:
 
 Distributed transaction veya saga kullanılmayacaktır.
 
-## 9. Store Profile
+## 9. Site Profile
 
 Siteye özel bilgiler tek yerde tutulur.
 
 ```ts
-export interface StoreProfile {
+export interface SiteProfile {
   code: string;
-  hostnames: string[];
+  hostnames: string[] | ['*'];
+  priority: number;
   useBrowser: boolean;
   productNameSelector?: string;
   priceSelector?: string;
@@ -204,9 +226,26 @@ export interface StoreProfile {
 }
 ```
 
-İlk teknik spike sonucunda Zara veya SuperStep'ten biri seçilecektir.
+Çözüm sırası:
 
-## 10. Veri Kaynağı İlkesi
+1. Tam hostname eşleşen doğrulanmış site profili
+2. Genel profil: changedetection.io price/restock processor ve standart yapılandırılmış veri
+3. Ayrıştırma başarısızsa `EXTRACTION_UNSUPPORTED`; domain profili eklenerek yeniden deneme
+
+Site profilleri sürümlenir, backend içinde tek registry üzerinden çözülür ve frontend'e selector ayrıntıları sızdırılmaz. Yeni site eklemek yeni bir profil ve contract testi gerektirir; Product, webhook veya UI akışı değiştirilmez.
+
+## 10. İlk Açılış ve Onboarding
+
+1. React başlangıçta `GET /api/v1/setup/status` çağırır.
+2. PostgreSQL'de `onboarding.completedAt` yoksa çoklu URL giriş ekranı açılır.
+3. Kullanıcı en az bir URL girer; tek istekte en fazla 20 URL kabul edilir.
+4. Backend her URL için normal Product oluşturma akışını kullanır.
+5. En az bir watch başarıyla oluşturulursa onboarding tamamlanmış sayılır.
+6. Sonraki uygulama/container başlangıçlarında doğrudan ürün listesi açılır.
+
+Onboarding bilgisi browser local storage'da değil PostgreSQL `AppSetting` kaydında tutulur. Böylece farklı tarayıcı ve container restart davranışları tutarlı kalır.
+
+## 11. Veri Kaynağı İlkesi
 
 ### changedetection.io
 
@@ -224,17 +263,19 @@ export interface StoreProfile {
 - Temiz fiyat geçmişi
 - Temiz stok geçmişi
 - Hata/durum kayıtları
+- Onboarding durumu
+- Telegram notification outbox
 
 PostgreSQL uygulamanın kalıcı domain veri kaynağıdır.
 
-## 11. Kodlama İlkeleri
+## 12. Kodlama İlkeleri
 
 - Frontend changedetection.io ile doğrudan konuşmaz.
 - Controller içinde business logic bulunmaz.
 - Prisma üzerine ek repository katmanı MVP'de kurulmaz.
 - Dış servis erişimi yalnız adapter üzerinden yapılır.
-- URL allowlist uygulanır.
-- Redirect sonucu domain yeniden kontrol edilir.
+- Sabit URL allowlist yerine yalnız public HTTP/HTTPS hedefleri kabul edilir.
+- DNS çözümleme ve her redirect sonrası private, loopback, link-local ve reserved IP aralıkları engellenir.
 - Tüm dış istekler timeout içerir.
 - Webhook shared secret ile korunur.
 - Aynı event iki kez işlense de sonuç değişmemelidir.
@@ -242,8 +283,10 @@ PostgreSQL uygulamanın kalıcı domain veri kaynağıdır.
 - Tarihler UTC saklanır.
 - Secret değerler loglanmaz.
 - Production'da sabit Docker image tag kullanılır.
+- Siteye özel selector ve fetch ayarı yalnız site profile registry'sinde bulunur.
+- Telegram token ve chat ID veritabanında tutulmaz; environment/secret üzerinden okunur.
 
-## 12. Git Stratejisi
+## 13. Git Stratejisi
 
 İki kişilik ekip için sade akış:
 
@@ -261,7 +304,7 @@ docs/*
 - Conventional Commits.
 - Main her zaman çalışır durumda tutulur.
 
-## 13. Definition of Done
+## 14. Definition of Done
 
 - Acceptance criteria tamamlandı.
 - Lint geçti.

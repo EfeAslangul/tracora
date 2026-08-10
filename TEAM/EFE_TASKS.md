@@ -36,10 +36,11 @@ MVP'de Redis ve BullMQ kullanılmaz.
 src/
   modules/
     products/
-    stores/
+    sites/
     changedetection/
     webhooks/
     settings/
+    notifications/
     system/
     health/
   common/
@@ -54,29 +55,25 @@ src/
 
 Kodlamaya başlamadan önce:
 
-### Zara
+Tek mağaza seçmek yerine üç temsili public ürün sayfası test edilir:
 
-- Ürün JSON-LD var mı?
-- Fiyat restock/price processor tarafından okunuyor mu?
-- Genel stok okunuyor mu?
-- Beden stokları sayfa yükünde mevcut mu?
-- Browser fetch gerekli mi?
-- Anti-bot problemi var mı?
+1. Standart JSON-LD `Product/Offer` sunan statik sayfa
+2. CSS/XPath profili gerektiren sayfa
+3. Browser fetch gerektiren JavaScript sayfası
 
-### SuperStep
-
-Aynı kontroller yapılır.
+Her örnekte fiyat, para birimi, genel stok, redirect, fetch modu ve anti-bot davranışı kaydedilir.
 
 ### Çıktı
 
-`docs/SPIKE_STORE_SELECTION.md` dosyası:
+`docs/SPIKE_GENERIC_SITE_SUPPORT.md` dosyası:
 
 - Test edilen URL'ler
 - Fetch yöntemi
 - Okunan alanlar
 - Sorunlar
-- Seçilen ilk mağaza
-- Beden/numara desteğinin MVP'ye girip girmeyeceği
+- Genel profilin başarı/başarısızlık sınırları
+- Özel site profili ekleme şablonu
+- Fixture ve contract test sonuçları
 
 ## 5. Product Domain
 
@@ -104,6 +101,8 @@ Product davranışları:
 
 ```http
 GET    /api/v1/health
+GET    /api/v1/setup/status
+POST   /api/v1/setup
 GET    /api/v1/products
 POST   /api/v1/products
 GET    /api/v1/products/:id
@@ -161,13 +160,15 @@ Webhook payload formatı `docs/WEBHOOK_CONTRACT.md` içinde tanımlanmalıdır.
 
 ## 9. URL Güvenliği
 
-- Yalnız desteklenen hostname'ler
+- Herkese açık HTTP/HTTPS hostname'ler
 - URL normalize
 - Fragment silme
 - Tracking query parametrelerini temizleme
-- Localhost/private IP engelleme
-- Redirect sonrası hostname tekrar kontrolü
+- DNS rebinding'e karşı çözülmüş tüm IP'lerde localhost/private/link-local/reserved ağ engeli
+- Her redirect sonrası URL ve çözülmüş IP kontrolü
 - HTTP/HTTPS dışında protokol kabul etmeme
+- Credential içeren URL'leri kabul etmeme
+- Port allowlist (`80`, `443`) ve istek timeout/response size sınırı
 
 Unique constraint:
 
@@ -228,6 +229,11 @@ Minimum hata kodları:
 - INVALID_WEBHOOK_SECRET
 - INVALID_WEBHOOK_PAYLOAD
 - RATE_LIMITED
+- UNSAFE_PRODUCT_URL
+- SETUP_ALREADY_COMPLETED
+- SETUP_HAS_NO_SUCCESSFUL_PRODUCT
+- EXTRACTION_UNSUPPORTED
+- TELEGRAM_NOT_CONFIGURED
 
 ## 13. Swagger
 
@@ -247,7 +253,7 @@ Swagger backend contract'ın resmi kaynağıdır.
 ### Unit
 
 - URL normalization
-- Store resolver
+- Site profile resolver ve generic fallback
 - Duplicate detection
 - Product status transitions
 - changedetection error mapping
@@ -256,6 +262,9 @@ Swagger backend contract'ın resmi kaynağıdır.
 
 ### Integration
 
+- setup status ilk açılış
+- partial-success çoklu URL setup
+- başarılı setup sonrası restart simülasyonu
 - Product create + watch create
 - Watch create başarısızlığında FAILED
 - Retry sonrası ACTIVE
@@ -265,6 +274,9 @@ Swagger backend contract'ın resmi kaynağıdır.
 - Invalid secret
 - changedetection unavailable
 - Reconciliation mismatch
+- 24 saat schedule oluşturma ve restart'ta duplicate check olmaması
+- Telegram outbox duplicate prevention ve retry
+- private IP, DNS/redirect SSRF engeli
 
 ## 15. Docker
 
@@ -282,6 +294,8 @@ Zorunluluklar:
 - restart policy
 - volume
 - environment örneği
+- PostgreSQL ve changedetection kalıcı volume'ları
+- Telegram secret environment değerleri
 - memory sınırı değerlendirmesi
 - datastore backup yolu
 
@@ -291,14 +305,14 @@ Efe'nin ana PR'ları:
 
 1. Backend scaffold
 2. Prisma schema
-3. Store spike
-4. ChangeDetection adapter
-5. Product create state machine
-6. Webhook receiver
-7. Snapshot persistence
-8. Swagger contract
-9. Backend test suite
-10. Docker backend stack
+3. Generic site spike + SiteProfileRegistry
+4. URL/SSRF güvenliği
+5. ChangeDetection adapter + 24 saat schedule
+6. Setup API + Product create state machine
+7. Webhook receiver + snapshot persistence
+8. Telegram gateway + notification outbox
+9. Swagger contract
+10. Backend test suite ve Docker backend stack
 
 ## 17. Codex Talimatı
 
