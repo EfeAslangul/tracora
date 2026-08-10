@@ -9,6 +9,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.6-alpine
+        env:
+          POSTGRES_DB: product_tracker_test
+          POSTGRES_USER: product_tracker
+          POSTGRES_PASSWORD: product_tracker
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U product_tracker -d product_tracker_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://product_tracker:product_tracker@localhost:5432/product_tracker_test?schema=public
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +38,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter api prisma:migrate:deploy
       - run: pnpm lint
       - run: pnpm type-check
       - run: pnpm test
+      - run: pnpm --filter api test:integration
       - run: pnpm build

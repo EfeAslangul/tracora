@@ -45,6 +45,7 @@ describe('ChangedetectionHttpClient', () => {
           url: 'https://shop.example/product',
           fetch_backend: 'html_webdriver',
           time_between_check: { weeks: 0, days: 1, hours: 0, minutes: 0, seconds: 0 },
+          time_between_check_use_default: false,
         }),
       }),
     );
@@ -88,6 +89,28 @@ describe('ChangedetectionHttpClient', () => {
         lastError: null,
       },
     ]);
+  });
+
+  it('normalizes restock observation data from a watch', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          url: 'https://shop.example/product',
+          title: 'Example',
+          fetch_backend: 'html_requests',
+          last_checked: 1_700_000_000,
+          history_n: 1,
+          restock: { price: 1999.9, currency: 'try', in_stock: true },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const client = new ChangedetectionHttpClient(config());
+
+    await expect(client.getWatch('watch-1')).resolves.toMatchObject({
+      historyCount: 1,
+      observation: { price: '1999.9', currency: 'TRY', inStock: true },
+    });
   });
 
   it('maps missing watches to a stable domain error', async () => {

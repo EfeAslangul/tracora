@@ -9,6 +9,13 @@ export interface CreateWatchInput {
   fetchMode?: WatchFetchMode;
   checkIntervalSeconds?: number;
   headers?: Record<string, string>;
+  processor?: 'restock_diff';
+  extractTitleAsTitle?: boolean;
+  notification?: {
+    url: string;
+    title: string;
+    body: string;
+  };
 }
 
 export interface CreatedWatch {
@@ -31,9 +38,15 @@ export interface WatchSnapshot {
   lastCheckedAt: Date | null;
   lastChangedAt: Date | null;
   lastError: string | null;
+  historyCount: number;
+  observation: {
+    price: string | null;
+    currency: string | null;
+    inStock: boolean | null;
+  };
 }
 
-export type WatchSummary = Omit<WatchSnapshot, 'fetchMode'>;
+export type WatchSummary = Omit<WatchSnapshot, 'fetchMode' | 'historyCount' | 'observation'>;
 
 export interface ChangeDetectionClient {
   createWatch(input: CreateWatchInput): Promise<CreatedWatch>;

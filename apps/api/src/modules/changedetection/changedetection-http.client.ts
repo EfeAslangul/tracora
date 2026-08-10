@@ -24,6 +24,12 @@ interface RawWatch {
   last_checked?: unknown;
   last_changed?: unknown;
   last_error?: unknown;
+  history_n?: unknown;
+  restock?: {
+    price?: unknown;
+    currency?: unknown;
+    in_stock?: unknown;
+  };
 }
 
 type RawWatchList = Record<string, RawWatch>;
@@ -114,6 +120,23 @@ export class ChangedetectionHttpClient implements ChangeDetectionClient {
     }
     if (input.checkIntervalSeconds !== undefined) {
       payload.time_between_check = this.toTimeBetweenCheck(input.checkIntervalSeconds);
+      payload.time_between_check_use_default = false;
+    }
+    if ('processor' in input && input.processor !== undefined) {
+      payload.processor = input.processor;
+      payload.restock_settings = {
+        follow_price_changes: true,
+        in_stock_processing: 'all_changes',
+      };
+    }
+    if ('extractTitleAsTitle' in input && input.extractTitleAsTitle !== undefined) {
+      payload.extract_title_as_title = input.extractTitleAsTitle;
+    }
+    if ('notification' in input && input.notification !== undefined) {
+      payload.notification_urls = [input.notification.url];
+      payload.notification_title = input.notification.title;
+      payload.notification_body = input.notification.body;
+      payload.notification_format = 'Text';
     }
 
     return payload;
@@ -142,6 +165,15 @@ export class ChangedetectionHttpClient implements ChangeDetectionClient {
       lastCheckedAt: this.toDate(watch.last_checked),
       lastChangedAt: this.toDate(watch.last_changed),
       lastError: this.toErrorMessage(watch.last_error),
+      historyCount:
+        typeof watch.history_n === 'number' && Number.isFinite(watch.history_n)
+          ? watch.history_n
+          : 0,
+      observation: {
+        price: this.toStringValue(watch.restock?.price),
+        currency: this.toStringValue(watch.restock?.currency)?.toUpperCase() ?? null,
+        inStock: typeof watch.restock?.in_stock === 'boolean' ? watch.restock.in_stock : null,
+      },
     };
   }
 
@@ -152,6 +184,12 @@ export class ChangedetectionHttpClient implements ChangeDetectionClient {
   private toErrorMessage(value: unknown): string | null {
     if (value === false || value === null || value === undefined || value === '') return null;
     return typeof value === 'string' ? value : 'changedetection.io bilinmeyen bir hata bildirdi.';
+  }
+
+  private toStringValue(value: unknown): string | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    return null;
   }
 
   private async request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {

@@ -10,11 +10,18 @@ export const environmentValidationSchema = Joi.object({
     .required(),
   CHANGEDETECTION_API_KEY: Joi.string().allow('').optional(),
   CHANGEDETECTION_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  CHANGEDETECTION_WEBHOOK_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('http://host.docker.internal:3000/api/v1/webhooks/changedetection'),
   CHANGEDETECTION_TIMEOUT_MS: Joi.number().integer().min(1_000).max(60_000).default(10_000),
   CHECK_INTERVAL_SECONDS: Joi.number().integer().min(3_600).default(86_400),
+  BASELINE_SYNC_INTERVAL_MS: Joi.number().integer().min(1_000).max(60_000).default(5_000),
+  NOTIFICATION_WORKER_INTERVAL_MS: Joi.number().integer().min(1_000).max(60_000).default(10_000),
+  URL_VALIDATION_TIMEOUT_MS: Joi.number().integer().min(1_000).max(30_000).default(5_000),
   TELEGRAM_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TELEGRAM_BOT_TOKEN: Joi.string().allow('').optional(),
   TELEGRAM_CHAT_ID: Joi.string().allow('').optional(),
+  TELEGRAM_TIMEOUT_MS: Joi.number().integer().min(1_000).max(60_000).default(10_000),
   APP_BASE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .required(),

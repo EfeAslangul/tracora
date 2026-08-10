@@ -44,7 +44,7 @@ Hedef: {targetPrice} TRY
 - Geçici ağ hataları ve `5xx`: yaklaşık 1 dk, 5 dk, 30 dk, 2 saat ve 12 saat sonra denenir.
 - `429`: Telegram `retry_after` değeri önceliklidir.
 - `400`, `401`, `403`: kalıcı hata sayılır; teslimat tekrar denenmez ve health `degraded` olur.
-- Maksimum 5 başarısız denemeden sonra kayıt `FAILED` kalır ve system health sayacına girer.
+- İlk teslimat denemesinden sonra en fazla 5 retry yapılır. Toplam 6 başarısız denemeden sonra kayıt `FAILED` kalır ve system health sayacına girer.
 - Restart sırasında süresi geçmiş `PROCESSING` lock'ları güvenle tekrar alınır.
 
 ## Health

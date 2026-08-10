@@ -122,6 +122,33 @@ Query:
 - search
 - sort
 
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "name": "Örnek ürün",
+      "url": "https://shop.example/product",
+      "hostname": "shop.example",
+      "profile": "generic",
+      "status": "ACTIVE",
+      "currentPrice": 1999.9,
+      "previousPrice": 2299.9,
+      "currency": "TRY",
+      "targetPrice": 1799.9,
+      "inStock": true,
+      "notificationsEnabled": true,
+      "lastCheckedAt": "2026-08-10T12:00:00Z",
+      "lastSuccessfulCheckAt": "2026-08-10T12:00:00Z",
+      "lastError": null
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
 ### POST /products
 
 ```json
@@ -145,7 +172,7 @@ Response:
 }
 ```
 
-Watch create tamamlanmadan `201` dönülmez. Watch create başarısızsa Product `FAILED` tutulur ve domain hata cevabı döner. Watch oluşturulduktan sonra ilk kontrol tetiklenir; fiyat bilgisi daha sonra webhook ile gelebilir.
+Watch create ve initial check kabul edilmeden `201` dönülmez. Watch create başarısızsa Product `FAILED` tutulur ve domain hata cevabı döner. İlk fiyat changedetection.io REST durumundan baseline worker ile alınır; sonraki değişiklikler webhook ile gelir. Aynı FAILED URL yeniden gönderildiğinde yeni Product oluşturulmadan mevcut kayıt/binding güvenli biçimde tekrar denenir.
 
 ### GET /products/:id
 
@@ -183,7 +210,7 @@ Header:
 x-webhook-secret
 ```
 
-Payload sözleşmesi `docs/WEBHOOK_CONTRACT.md` içinde tanımlanacaktır.
+Payload fiyat/stok olayı değil gözlemi taşır. `PRICE_CHANGED`, `TARGET_REACHED` ve `RESTOCKED` kararlarını NestJS mevcut snapshot ile karşılaştırarak üretir. Ayrıntılı sözleşme `docs/WEBHOOK_CONTRACT.md` içindedir.
 
 Başarılı response:
 

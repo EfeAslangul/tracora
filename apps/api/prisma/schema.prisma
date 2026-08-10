@@ -7,4 +7,165 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Sprint 0 yalnız Prisma bağlantısını kurar. Domain modelleri Sprint 1'de eklenir.
+enum StoreProfileStatus {
+  GENERIC
+  VERIFIED
+  DISABLED
+}
+
+enum ProductStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  FAILED
+}
+
+enum WatchFetchMode {
+  AUTO
+  HTTP
+  BROWSER
+}
+
+enum NotificationChannel {
+  TELEGRAM
+}
+
+enum NotificationType {
+  PRICE_CHANGED
+  TARGET_REACHED
+  RESTOCKED
+  WATCH_ERROR
+}
+
+enum NotificationStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model Store {
+  id             String             @id @default(uuid()) @db.Uuid
+  hostname       String             @unique @db.VarChar(253)
+  name           String             @db.VarChar(253)
+  profileKey     String             @default("generic") @db.VarChar(100)
+  profileVersion Int                @default(1)
+  profileStatus  StoreProfileStatus @default(GENERIC)
+  active         Boolean            @default(true)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  products       Product[]
+}
+
+model Product {
+  id                    String              @id @default(uuid()) @db.Uuid
+  storeId               String              @db.Uuid
+  name                  String?             @db.VarChar(500)
+  url                   String
+  normalizedUrl         String
+  imageUrl              String?
+  currentPrice          Decimal?            @db.Decimal(18, 4)
+  previousPrice         Decimal?            @db.Decimal(18, 4)
+  currency              String?             @db.VarChar(3)
+  targetPrice           Decimal?            @db.Decimal(18, 4)
+  inStock               Boolean?
+  notificationsEnabled  Boolean             @default(true)
+  status                ProductStatus       @default(PENDING)
+  lastCheckedAt         DateTime?            @db.Timestamptz(3)
+  lastSuccessfulCheckAt DateTime?            @db.Timestamptz(3)
+  lastErrorCode         String?             @db.VarChar(100)
+  lastErrorMessage      String?
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
+  store                 Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  watchBinding          WatchBinding?
+  priceSnapshots        PriceSnapshot[]
+  stockSnapshots        StockSnapshot[]
+  events                EventLog[]
+  notificationDeliveries NotificationDelivery[]
+
+  @@unique([storeId, normalizedUrl])
+  @@index([status, lastSuccessfulCheckAt])
+  @@index([updatedAt])
+}
+
+model WatchBinding {
+  id                 String         @id @default(uuid()) @db.Uuid
+  productId          String         @unique @db.Uuid
+  externalWatchId    String         @unique @db.VarChar(100)
+  requestedFetchMode WatchFetchMode @default(AUTO)
+  fetchMode          WatchFetchMode
+  lastSyncAt         DateTime?      @db.Timestamptz(3)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  product            Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model PriceSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String   @db.Uuid
+  price          Decimal  @db.Decimal(18, 4)
+  currency       String   @db.VarChar(3)
+  observedAt     DateTime @db.Timestamptz(3)
+  sourceEventKey String   @unique @db.VarChar(128)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, observedAt(sort: Desc)])
+}
+
+model StockSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String   @db.Uuid
+  inStock        Boolean
+  availableSizes Json?
+  observedAt     DateTime @db.Timestamptz(3)
+  sourceEventKey String   @unique @db.VarChar(128)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, observedAt(sort: Desc)])
+}
+
+model EventLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String?  @db.Uuid
+  type      String   @db.VarChar(100)
+  code      String?  @db.VarChar(100)
+  message   String
+  metadata  Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt(sort: Desc)])
+  @@index([type, createdAt(sort: Desc)])
+}
+
+model AppSetting {
+  key       String   @id @db.VarChar(150)
+  value     Json
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model NotificationDelivery {
+  id               String              @id @default(uuid()) @db.Uuid
+  productId        String              @db.Uuid
+  sourceEventKey   String              @db.VarChar(128)
+  channel          NotificationChannel @default(TELEGRAM)
+  type             NotificationType
+  status           NotificationStatus  @default(PENDING)
+  payload          Json
+  attempts         Int                 @default(0)
+  nextAttemptAt    DateTime?            @db.Timestamptz(3)
+  lockedAt         DateTime?            @db.Timestamptz(3)
+  sentAt           DateTime?            @db.Timestamptz(3)
+  lastErrorCode    String?              @db.VarChar(100)
+  lastErrorMessage String?
+  createdAt        DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(3)
+  product          Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceEventKey, channel, type])
+  @@index([status, nextAttemptAt])
+  @@index([lockedAt])
+}

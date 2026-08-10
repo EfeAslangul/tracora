@@ -33,6 +33,8 @@ services:
       - '${CHANGEDETECTION_HOST_PORT:-5050}:5000'
     volumes:
       - changedetection_data:/datastore
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     healthcheck:
       test:
         [
