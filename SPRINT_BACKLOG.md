@@ -6,15 +6,17 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Efe
 
-- [ ] changedetection.io ve browser fetcher Docker health/volume doğrulaması
-- [ ] REST API erişimi ve sabit image version
+- [x] changedetection.io ve browser fetcher Docker health/volume doğrulaması
+- [x] changedetection.io tag ve browser fetcher multi-arch digest sabitleme
+- [ ] API key ile authenticated REST API smoke testi
 - [ ] versioned Apprise JSON webhook smoke test
 - [ ] üç temsili public ürün sayfasında generic/static/browser spike
 - [ ] `docs/SPIKE_GENERIC_SITE_SUPPORT.md` raporu
 - [ ] Telegram Bot API smoke test
-- [ ] NestJS environment validation eksiklerini tamamlama
-- [ ] Prisma/PostgreSQL scaffold doğrulama
-- [ ] API lint scriptinde bulunmayan `test/**/*.ts` glob davranışını düzeltme
+- [x] NestJS environment validation eksiklerini tamamlama
+- [x] Prisma/PostgreSQL scaffold doğrulama
+- [x] API lint scriptinde bulunmayan `test/**/*.ts` glob davranışını düzeltme
+- [x] pnpm lockfile oluşturma ve CI frozen-install temelini tamamlama
 
 ### Haydar
 
@@ -44,7 +46,7 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [ ] public URL normalizasyonu ve SSRF/redirect koruması
 - [ ] duplicate constraint
 - [ ] Product `PENDING → ACTIVE/FAILED` state machine
-- [ ] `ChangeDetectionClient` adapter
+- [x] `ChangeDetectionClient` adapter ve unit testleri
 - [ ] watch create + immediate initial check + `86400` saniye schedule
 - [ ] `GET /setup/status`
 - [ ] partial-success `POST /setup`

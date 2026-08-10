@@ -1,7 +1,14 @@
 export const CHANGEDETECTION_CLIENT = Symbol('CHANGEDETECTION_CLIENT');
 
+export type WatchFetchMode = 'AUTO' | 'HTTP' | 'BROWSER';
+
 export interface CreateWatchInput {
   url: string;
+  title?: string;
+  tag?: string;
+  fetchMode?: WatchFetchMode;
+  checkIntervalSeconds?: number;
+  headers?: Record<string, string>;
 }
 
 export interface CreatedWatch {
@@ -10,15 +17,23 @@ export interface CreatedWatch {
 
 export interface UpdateWatchInput {
   url?: string;
+  title?: string;
+  fetchMode?: WatchFetchMode;
+  checkIntervalSeconds?: number;
+  headers?: Record<string, string>;
 }
 
 export interface WatchSnapshot {
   id: string;
+  url: string;
+  title: string;
+  fetchMode: Exclude<WatchFetchMode, 'AUTO'>;
+  lastCheckedAt: Date | null;
+  lastChangedAt: Date | null;
+  lastError: string | null;
 }
 
-export interface WatchSummary {
-  id: string;
-}
+export type WatchSummary = Omit<WatchSnapshot, 'fetchMode'>;
 
 export interface ChangeDetectionClient {
   createWatch(input: CreateWatchInput): Promise<CreatedWatch>;

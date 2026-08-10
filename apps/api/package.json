@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --no-error-on-unmatched-pattern",
     "type-check": "tsc --noEmit",
     "test": "jest",
-    "prisma": "prisma"
+    "prisma": "prisma",
+    "prisma:validate": "prisma validate"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

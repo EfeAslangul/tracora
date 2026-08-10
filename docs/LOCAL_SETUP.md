@@ -28,7 +28,7 @@ package.json
 git clone <repository-url>
 cd product-tracker
 cp .env.example .env
-pnpm install
+pnpm install --frozen-lockfile
 docker compose up -d
 pnpm dev
 ```
@@ -39,7 +39,7 @@ pnpm dev
 | ------------------ | -------- |
 | React              | 5173     |
 | NestJS             | 3000     |
-| changedetection.io | 5000     |
+| changedetection.io | 5050     |
 | PostgreSQL         | 5432     |
 | Browser fetcher    | internal |
 
@@ -47,9 +47,15 @@ pnpm dev
 
 ```env
 DATABASE_URL=
-CHANGEDETECTION_BASE_URL=http://changedetection:5000
+CHANGEDETECTION_BASE_URL=http://localhost:5050
 CHANGEDETECTION_API_KEY=
 CHANGEDETECTION_WEBHOOK_SECRET=
+CHANGEDETECTION_TIMEOUT_MS=10000
+CHANGEDETECTION_PUBLIC_BASE_URL=http://localhost:5050
+CHANGEDETECTION_HOST_PORT=5050
+CHANGEDETECTION_FETCH_WORKERS=3
+SOCKPUPPET_BROWSER_IMAGE=dgtlmoon/sockpuppetbrowser@sha256:7116c61ef9cfce3d48a7efd9355d2fbe19f593ea3cfb52a5ded40ecbcb0a3f9d
+BROWSER_MAX_CONCURRENCY=3
 CHECK_INTERVAL_SECONDS=86400
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
@@ -58,12 +64,22 @@ APP_BASE_URL=http://localhost:3000
 WEB_BASE_URL=http://localhost:5173
 ```
 
+API host makinede `pnpm dev` ile çalışıyorsa `CHANGEDETECTION_BASE_URL=http://localhost:5050` kullanılır. API daha sonra Compose ağına alındığında değer `http://changedetection:5000` olur. Container içi port her zaman `5000` kalır; host tarafında macOS Control Center çakışmasını önlemek için varsayılan `5050` kullanılır.
+
+`CHANGEDETECTION_API_KEY`, changedetection.io içindeki Settings/API ekranından alınır ve yalnız yerel `.env` veya secret store'a yazılır; repository'ye commit edilmez.
+
+Browser fetcher dışarı port açmaz. changedetection.io, `PLAYWRIGHT_DRIVER_URL=ws://browser-fetcher:3000` ile Compose ağı içinden bağlanır. Browser image çoklu mimari manifest digest'iyle sabitlenmiştir.
+
 ## Kontrol
 
 ```bash
 curl http://localhost:3000/api/v1/health
 curl http://localhost:3000/api/v1/setup/status
+docker compose ps
+curl -H "x-api-key: $CHANGEDETECTION_API_KEY" http://localhost:5050/api/v1/watch
 ```
+
+`postgres`, `browser-fetcher` ve `changedetection` servislerinin `healthy` olması beklenir. İlk image indirmesi Chromium nedeniyle birkaç dakika sürebilir.
 
 Telegram değerleri yoksa ürün takibi çalışmaya devam eder; `/system/health` Telegram durumunu `not_configured` gösterir. Token ve chat ID veritabanına veya loglara yazılmaz.
 
@@ -79,6 +95,8 @@ PostgreSQL ve changedetection datastore volume'larını silmek onboarding ve wat
 ## Prisma
 
 ```bash
+pnpm --filter api prisma generate
+pnpm --filter api prisma:validate
 pnpm --filter api prisma migrate dev
 pnpm --filter api prisma db seed
 ```

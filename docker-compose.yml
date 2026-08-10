@@ -19,10 +19,52 @@ services:
   changedetection:
     image: dgtlmoon/changedetection.io:0.49.0
     restart: unless-stopped
+    environment:
+      PLAYWRIGHT_DRIVER_URL: ws://browser-fetcher:3000
+      BASE_URL: ${CHANGEDETECTION_PUBLIC_BASE_URL:-http://localhost:5050}
+      BLOCK_SIMPLEHOSTS: 'true'
+      DISABLE_VERSION_CHECK: 'true'
+      HIDE_REFERER: 'true'
+      FETCH_WORKERS: ${CHANGEDETECTION_FETCH_WORKERS:-3}
+    depends_on:
+      browser-fetcher:
+        condition: service_healthy
     ports:
-      - '5000:5000'
+      - '${CHANGEDETECTION_HOST_PORT:-5050}:5000'
     volumes:
       - changedetection_data:/datastore
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000', timeout=5)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  browser-fetcher:
+    image: ${SOCKPUPPET_BROWSER_IMAGE:-dgtlmoon/sockpuppetbrowser@sha256:7116c61ef9cfce3d48a7efd9355d2fbe19f593ea3cfb52a5ded40ecbcb0a3f9d}
+    hostname: browser-fetcher
+    restart: unless-stopped
+    init: true
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 1gb
+    environment:
+      SCREEN_WIDTH: 1920
+      SCREEN_HEIGHT: 1080
+      SCREEN_DEPTH: 16
+      MAX_CONCURRENT_CHROME_PROCESSES: ${BROWSER_MAX_CONCURRENCY:-3}
+    healthcheck:
+      test: ['CMD', 'python3', '/usr/src/app/docker-health-check.py', '--host', 'http://localhost']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
 volumes:
   postgres_data:
