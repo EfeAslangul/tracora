@@ -1,85 +1,66 @@
 # changedetection.io Webhook Contract
 
-changedetection.io notification template'i bu sürümlü uygulama sözleşmesini üretir. Ham Apprise payload'ı doğrudan domain katmanına taşınmaz.
+changedetection.io Apprise notification template'i fiyat/stok gözlemini bu sürümlü sözleşmeyle gönderir. Olay türünü güvenilir biçimde PostgreSQL'deki önceki değerle karşılaştıran NestJS üretir.
 
-## Endpoint
+## Endpoint ve Authentication
 
 ```http
 POST /api/v1/webhooks/changedetection
-```
-
-## Authentication
-
-```http
 x-webhook-secret: <secret>
+Content-Type: application/json
 ```
 
-## Sürüm 1 Normalize Payload
+Secret SHA-256 özetleri üzerinden sabit zamanlı karşılaştırılır. Değer loglanmaz veya response'a yazılmaz.
+
+## Sürüm 1 Gözlem Payload'ı
 
 ```json
 {
   "schemaVersion": 1,
-  "eventId": "string",
-  "watchId": "string",
-  "eventType": "PRICE_CHANGED",
-  "observedAt": "2026-08-01T12:00:00Z",
-  "product": {
-    "name": "string",
-    "url": "string",
-    "imageUrl": "string"
-  },
-  "price": {
-    "current": 1999.9,
-    "previous": 2299.9,
-    "currency": "TRY"
-  },
-  "stock": {
-    "inStock": true,
-    "availableSizes": []
-  },
-  "raw": {}
+  "eventId": "watch-uuid:notification-timestamp",
+  "watchId": "watch-uuid",
+  "observedAt": 1786363200.123,
+  "observation": {
+    "price": "1999.90",
+    "currency": "TRY",
+    "inStock": true
+  }
 }
 ```
 
-## Event Types
+- `observedAt` Unix epoch saniyesidir.
+- `price` en fazla dört ondalıklı decimal string'dir.
+- `currency` üç harfli büyük ISO para birimi kodudur.
+- `inStock` çıkarılamıyorsa alan gönderilmeyebilir.
+- Product adı ve URL webhook'tan güvenilir veri olarak alınmaz; `watchId` ile PostgreSQL kaydı kullanılır.
 
-- PRICE_CHANGED
-- STOCK_CHANGED
-- RESTOCKED
-- WATCH_ERROR
-- WATCH_RECOVERED
+## Baseline
 
-## Idempotency
+Pinned changedetection.io `0.49.0` ilk snapshot'ta notification üretmez. NestJS baseline worker:
 
-Tercih sırası:
+1. İlk kontrol tetiklenmiş ve fiyatı olmayan ACTIVE binding'leri okur.
+2. Watch REST durumundaki `restock.price/currency/in_stock` alanlarını normalize eder.
+3. `generic/AUTO` HTTP sonucu başarısızsa watch'ı yalnız bir kez BROWSER moda geçirir.
+4. Başarılı sonucu aynı observation service'e yollar.
+5. Baseline snapshot kaydeder fakat outbox üretmez.
 
-1. Apprise/changedetection event ID varsa kullan.
-2. Yoksa:
+Worker startup sırasında kontrol tetiklemez; yalnız mevcut watch durumunu okur. Restart sonrası PostgreSQL durumundan devam eder.
 
-```text
-watchId + eventType + observedAt + payloadHash
-```
+## Idempotency ve İşleme
 
-`sourceEventKey`, normalize edilen event ID'den üretilir ve snapshot ile notification outbox'ta aynı işlem boyunca kullanılır.
-
-## İşleme Kuralları
-
-- Bilinmeyen `schemaVersion` için `400 INVALID_WEBHOOK_PAYLOAD` dönülür.
-- `watchId` aktif bir `WatchBinding` ile eşleşmelidir.
-- İlk başarılı fiyat gözlemi baseline olarak kaydedilir; fiyat değişimi bildirimi üretmez.
-- Aynı fiyat tekrar geldiyse duplicate `PriceSnapshot` ve Telegram bildirimi üretilmez.
-- `notificationsEnabled=false` ise snapshot kaydedilir fakat outbox kaydı oluşturulmaz.
-- Önceki fiyat hedefin üzerindeyken yeni fiyat hedefe eşit veya altına indiyse `TARGET_REACHED` üretilir.
-- Aynı event hem hedefe ulaşma hem fiyat değişimi ise tek, birleşik `TARGET_REACHED` mesajı gönderilir.
-- `RESTOCKED`, önceki stok `false` ve yeni stok `true` olduğunda üretilir.
-- Webhook transaction'ı snapshot ve outbox insert'ini birlikte commit eder; Telegram HTTP çağrısı request içinde yapılmaz.
+- `sourceEventKey`, varsa `eventId`; yoksa `watchId + observedAt + canonical observation` SHA-256 özetidir.
+- Aynı key ile daha önce PriceSnapshot veya StockSnapshot varsa `204` dönülür.
+- Fiyat/stok değişmediyse yalnız son başarılı kontrol zamanı güncellenir.
+- İlk fiyat baseline'dır ve Telegram üretmez.
+- Hedefe ulaşma normal fiyat değişikliğine üstün gelir; aynı event için tek `TARGET_REACHED` oluşur.
+- Önceki stok `false`, yeni stok `true` ise `RESTOCKED` oluşur.
+- Product, snapshot ve NotificationDelivery aynı PostgreSQL transaction'ında commit edilir.
+- Telegram HTTP çağrısı webhook request'i içinde yapılmaz.
 
 ## Response
 
-- 204: işlendi veya daha önce işlenmiş
-- 400: payload geçersiz
-- 401: secret yanlış
-- 404: watch eşleşmesi yok
-- 500: geçici sunucu hatası
-
-`204`, Telegram mesajının gönderildiği değil event'in kalıcı olarak kabul edildiği anlamına gelir.
+- `204`: işlendi veya daha önce işlenmiş
+- `400`: payload/sürüm geçersiz
+- `401`: secret yanlış
+- `404`: watch eşleşmesi yok
+- `500`: geçici DB/sunucu hatası

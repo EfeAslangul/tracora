@@ -163,7 +163,7 @@ sequenceDiagram
     participant N as Notification Worker
     participant T as Telegram
 
-    C->>A: JSON notification + secret
+    C->>A: JSON price/stock observation + secret
     A->>A: Validate + idempotency
     A->>D: Update Product
     A->>D: Insert Price/Stock Snapshot
@@ -179,6 +179,8 @@ sequenceDiagram
 ```
 
 Notification worker aynı NestJS uygulamasındaki cron işidir; ayrı servis veya message broker değildir. Maksimum deneme sayısı ve artan gecikme uygulanır. Aynı `sourceEventKey + channel + notificationType` yalnız bir delivery üretir.
+
+Pinned changedetection.io sürümü ilk snapshot için notification üretmediğinden ilk fiyat ayrı bir kalıcı baseline worker tarafından REST watch durumundan okunur. Worker yeni kontrol tetiklemez; yalnız ilk sonucu bekleyen binding'leri senkronize eder. Sonraki gerçek değişikliklerin kaynağı webhook'tur.
 
 ## 10. Reconciliation
 

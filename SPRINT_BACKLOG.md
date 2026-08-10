@@ -6,28 +6,30 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Efe
 
-- [ ] changedetection.io ve browser fetcher Docker health/volume doğrulaması
-- [ ] REST API erişimi ve sabit image version
+- [x] changedetection.io ve browser fetcher Docker health/volume doğrulaması
+- [x] changedetection.io tag ve browser fetcher multi-arch digest sabitleme
+- [ ] API key ile authenticated REST API smoke testi
 - [ ] versioned Apprise JSON webhook smoke test
 - [ ] üç temsili public ürün sayfasında generic/static/browser spike
 - [ ] `docs/SPIKE_GENERIC_SITE_SUPPORT.md` raporu
 - [ ] Telegram Bot API smoke test
-- [ ] NestJS environment validation eksiklerini tamamlama
-- [ ] Prisma/PostgreSQL scaffold doğrulama
-- [ ] API lint scriptinde bulunmayan `test/**/*.ts` glob davranışını düzeltme
+- [x] NestJS environment validation eksiklerini tamamlama
+- [x] Prisma/PostgreSQL scaffold doğrulama
+- [x] API lint scriptinde bulunmayan `test/**/*.ts` glob davranışını düzeltme
+- [x] pnpm lockfile oluşturma ve CI frozen-install temelini tamamlama
 
 ### Haydar
 
 - [ ] GitHub repository, collaborator ve main protection
 - [ ] GitHub Project ve milestone'lar
-- [ ] React/Vite scaffold doğrulama
-- [ ] AppShell ve merkezi API client
+- [x] React/Vite scaffold doğrulama
+- [x] AppShell ve merkezi API client
 - [ ] Product list mock durumları
 - [ ] generic site spike acceptance criteria
 - [ ] ilk açılış wizard wireflow'u
 - [ ] Telegram mesaj metni ve acceptance örnekleri
-- [ ] Vitest globals/setup ve `vite/client` type yapılandırmasını düzeltme
-- [ ] Web type-check, test ve build kalite kapılarını yeşile getirme
+- [x] Vitest globals/setup ve `vite/client` type yapılandırmasını düzeltme
+- [x] Web type-check, test ve build kalite kapılarını yeşile getirme
 
 ### Ortak Çıkış Kriteri
 
@@ -39,29 +41,30 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Efe
 
-- [ ] Store/Product/WatchBinding/AppSetting Prisma migration
-- [ ] `SiteProfileRegistry` ve `generic` profil
-- [ ] public URL normalizasyonu ve SSRF/redirect koruması
-- [ ] duplicate constraint
-- [ ] Product `PENDING → ACTIVE/FAILED` state machine
-- [ ] `ChangeDetectionClient` adapter
-- [ ] watch create + immediate initial check + `86400` saniye schedule
-- [ ] `GET /setup/status`
-- [ ] partial-success `POST /setup`
-- [ ] setup completedAt kalıcılığı
-- [ ] Swagger product/setup contract ve integration testleri
+- [x] Store/Product/WatchBinding/AppSetting Prisma migration
+- [x] `SiteProfileRegistry` ve `generic` profil
+- [x] public URL normalizasyonu ve SSRF/redirect koruması
+- [x] duplicate constraint
+- [x] Product `PENDING → ACTIVE/FAILED` state machine
+- [x] `ChangeDetectionClient` adapter ve unit testleri
+- [x] watch create + immediate initial check + `86400` saniye schedule
+- [x] `GET /setup/status`
+- [x] partial-success `POST /setup`
+- [x] setup completedAt kalıcılığı
+- [x] Swagger product/setup contract
+- [ ] Product/setup integration testleri
 
 ### Haydar
 
-- [ ] setup status route guard
-- [ ] 1..20 URL ilk açılış formu
-- [ ] URL bazlı target price ve notification tercihi
-- [ ] partial success sonuç ekranı
-- [ ] başarı sonrası ürün listesine yönlendirme
+- [x] setup status route guard
+- [x] 1..20 URL ilk açılış formu
+- [x] URL bazlı target price ve notification tercihi
+- [x] partial success sonuç ekranı
+- [x] başarı sonrası ürün listesine yönlendirme
 - [ ] restart/yeniden açılışta wizard göstermeme testi
-- [ ] Product list/card ve sonradan ürün ekleme formu
-- [ ] loading/empty/error/responsive durumları
-- [ ] mock API'den gerçek API'ye geçiş
+- [x] Product list/card ve sonradan ürün ekleme formu
+- [x] loading/empty/error/responsive durumları
+- [x] mock API'den gerçek API'ye geçiş
 
 ### Ortak Çıkış Kriteri
 
@@ -74,24 +77,24 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Efe
 
-- [ ] versioned webhook DTO, secret ve idempotency
-- [ ] PriceSnapshot ve StockSnapshot migration/işleme
-- [ ] NotificationDelivery outbox migration
-- [ ] Telegram gateway ve secret validation
-- [ ] birleşik `TARGET_REACHED`, `PRICE_CHANGED`, `RESTOCKED` politikası
-- [ ] notification worker, maksimum 5 retry ve artan gecikme
+- [x] versioned webhook DTO, secret ve idempotency
+- [x] PriceSnapshot ve StockSnapshot migration/işleme
+- [x] NotificationDelivery outbox migration
+- [x] Telegram gateway ve secret validation
+- [x] birleşik `TARGET_REACHED`, `PRICE_CHANGED`, `RESTOCKED` politikası
+- [x] notification worker, maksimum 5 retry ve artan gecikme
 - [ ] manual check ve retry endpoint'leri
-- [ ] duplicate webhook/snapshot/message integration testleri
+- [x] duplicate webhook/snapshot/message integration testleri
 - [ ] Telegram unavailable/recovery integration testleri
 
 ### Haydar
 
 - [ ] Product detail ve fiyat grafiği
-- [ ] stok ve son kontrol durumu
+- [x] stok ve son kontrol durumu
 - [ ] manual check ve FAILED retry UI
-- [ ] hata kodu kullanıcı mesajları
+- [x] hata kodu kullanıcı mesajları
 - [ ] Telegram ready/not_configured/degraded göstergesi
-- [ ] hedef fiyat ve notification tercih UX'i
+- [x] hedef fiyat ve notification tercih UX'i
 - [ ] mobil/klavye erişilebilirlik kontrolü
 
 ### Ortak Çıkış Kriteri
@@ -106,7 +109,7 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 ### Efe
 
 - [ ] daily reconciliation cron ve 24 saat schedule drift raporu
-- [ ] system health API: database/changedetection/telegram/outbox
+- [x] system health API: database/changedetection/telegram/outbox
 - [ ] structured logging ve request ID
 - [ ] Docker health checks/restart policy
 - [ ] PostgreSQL ve changedetection datastore backup/restore dokümanı

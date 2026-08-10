@@ -47,12 +47,15 @@ Her public hostname ilk ürün eklenirken `GENERIC` store olarak oluşturulabili
 - id UUID
 - productId UUID
 - externalWatchId varchar unique
-- fetchMode enum
+- requestedFetchMode enum (`AUTO`, `HTTP`, `BROWSER`)
+- fetchMode enum (`HTTP`, `BROWSER`)
 - lastSyncAt timestamp nullable
 - createdAt
 - updatedAt
 
 Başlangıçta Product 1:1 WatchBinding. Beden spike sonucu 1:N gerekirse ADR ile değiştirilir.
+
+`requestedFetchMode=AUTO` ilk olarak `fetchMode=HTTP` oluşturur. Baseline fiyat çıkaramazsa yalnız bir kez `BROWSER` moduna yükseltilir; kalıcı mod restart sonrasında tekrar denenmez.
 
 ## PriceSnapshot
 

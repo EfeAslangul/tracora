@@ -1,25 +1,33 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import * as Joi from 'joi';
+import { ScheduleModule } from '@nestjs/schedule';
+import { environmentValidationSchema } from './config/environment.validation';
+import { BaselineModule } from './modules/baseline/baseline.module';
 import { ChangedetectionModule } from './modules/changedetection/changedetection.module';
+import { DatabaseModule } from './modules/database/database.module';
 import { HealthModule } from './modules/health/health.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ProductsModule } from './modules/products/products.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { SystemModule } from './modules/system/system.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      validationSchema: Joi.object({
-        DATABASE_URL: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).required(),
-        CHANGEDETECTION_BASE_URL: Joi.string().uri().required(),
-        CHANGEDETECTION_API_KEY: Joi.string().allow('').optional(),
-        CHANGEDETECTION_WEBHOOK_SECRET: Joi.string().allow('').optional(),
-        APP_BASE_URL: Joi.string().uri().required(),
-        WEB_BASE_URL: Joi.string().uri().required(),
-        PORT: Joi.number().port().default(3000),
-      }),
+      validationSchema: environmentValidationSchema,
     }),
+    ScheduleModule.forRoot(),
+    DatabaseModule,
     HealthModule,
     ChangedetectionModule,
+    ProductsModule,
+    SettingsModule,
+    WebhooksModule,
+    BaselineModule,
+    NotificationsModule,
+    SystemModule,
   ],
 })
 export class AppModule {}

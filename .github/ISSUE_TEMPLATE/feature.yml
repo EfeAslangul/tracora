@@ -1,7 +1,7 @@
 name: Feature
 description: Yeni özellik
-title: "[Feature] "
-labels: ["feature"]
+title: '[Feature] '
+labels: ['feature']
 body:
   - type: textarea
     attributes:
