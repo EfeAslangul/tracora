@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
@@ -29,6 +30,7 @@ type SetupForm = z.infer<typeof setupSchema>;
 export function SetupPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const addRowButtonRef = useRef<HTMLButtonElement>(null);
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
     defaultValues: { products: [{ url: '', targetPrice: undefined, notificationsEnabled: true }] },
@@ -101,7 +103,11 @@ export function SetupPage() {
               <button
                 className="button secondary"
                 type="button"
-                onClick={() => fields.remove(index)}
+                aria-label={`Ürün ${index + 1} satırını kaldır`}
+                onClick={() => {
+                  fields.remove(index);
+                  addRowButtonRef.current?.focus();
+                }}
               >
                 Satırı kaldır
               </button>
@@ -116,6 +122,7 @@ export function SetupPage() {
         )}
         <div className="actions">
           <button
+            ref={addRowButtonRef}
             className="button secondary"
             type="button"
             disabled={fields.fields.length >= 20}
@@ -141,7 +148,10 @@ function SetupResultView({ result, onContinue }: { result: SetupResult; onContin
       <h1 id="setup-result-title">{result.created.length} ürün takibe alındı</h1>
       <div className="result-list success" aria-label="Başarılı ürünler">
         {result.created.map((product) => (
-          <p key={product.id}>✓ {product.url}</p>
+          <p key={product.id}>
+            <span aria-hidden="true">✓ </span>
+            {product.url}
+          </p>
         ))}
       </div>
       {result.failed.length > 0 && (

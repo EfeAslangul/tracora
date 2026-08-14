@@ -61,7 +61,7 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [x] URL bazlı target price ve notification tercihi
 - [x] partial success sonuç ekranı
 - [x] başarı sonrası ürün listesine yönlendirme
-- [ ] restart/yeniden açılışta wizard göstermeme testi
+- [x] restart/yeniden açılışta wizard göstermeme testi
 - [x] Product list/card ve sonradan ürün ekleme formu
 - [x] loading/empty/error/responsive durumları
 - [x] mock API'den gerçek API'ye geçiş
@@ -93,7 +93,7 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [x] stok ve son kontrol durumu
 - [ ] manual check ve FAILED retry UI
 - [x] hata kodu kullanıcı mesajları
-- [ ] Telegram ready/not_configured/degraded göstergesi
+- [x] Telegram ready/not_configured/degraded göstergesi
 - [x] hedef fiyat ve notification tercih UX'i
 - [ ] mobil/klavye erişilebilirlik kontrolü
 
