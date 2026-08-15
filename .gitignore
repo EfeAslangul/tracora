@@ -6,3 +6,4 @@ coverage/
 apps/api/prisma/*.db
 *.log
 .DS_Store
+.claude/

@@ -127,7 +127,13 @@ function ProductCard({ product }: { product: ProductListItem }) {
         </div>
         <strong className="price">{price}</strong>
       </div>
-      <a href={product.url} target="_blank" rel="noreferrer" className="product-url">
+      <a
+        href={product.url}
+        target="_blank"
+        rel="noreferrer"
+        className="product-url"
+        aria-label={`Ürün sayfasını yeni sekmede aç: ${product.url}`}
+      >
         {product.url}
       </a>
       <dl className="product-meta">
