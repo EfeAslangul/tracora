@@ -24,6 +24,7 @@ export interface CreatedWatch {
 
 export interface UpdateWatchInput {
   url?: string;
+  paused?: boolean;
   title?: string;
   fetchMode?: WatchFetchMode;
   checkIntervalSeconds?: number;

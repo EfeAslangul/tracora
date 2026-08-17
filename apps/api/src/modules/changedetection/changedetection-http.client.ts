@@ -115,6 +115,7 @@ export class ChangedetectionHttpClient implements ChangeDetectionClient {
     if (input.title !== undefined) payload.title = input.title;
     if ('tag' in input && input.tag !== undefined) payload.tag = input.tag;
     if (input.headers !== undefined) payload.headers = input.headers;
+    if ('paused' in input && input.paused !== undefined) payload.paused = input.paused;
     if (input.fetchMode !== undefined && input.fetchMode !== 'AUTO') {
       payload.fetch_backend = input.fetchMode === 'BROWSER' ? 'html_webdriver' : 'html_requests';
     }

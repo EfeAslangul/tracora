@@ -52,7 +52,7 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [x] partial-success `POST /setup`
 - [x] setup completedAt kalıcılığı
 - [x] Swagger product/setup contract
-- [ ] Product/setup integration testleri
+- [x] Product/setup integration testleri
 
 ### Haydar
 
@@ -83,9 +83,9 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [x] Telegram gateway ve secret validation
 - [x] birleşik `TARGET_REACHED`, `PRICE_CHANGED`, `RESTOCKED` politikası
 - [x] notification worker, maksimum 5 retry ve artan gecikme
-- [ ] manual check ve retry endpoint'leri
+- [x] manual check ve retry endpoint'leri
 - [x] duplicate webhook/snapshot/message integration testleri
-- [ ] Telegram unavailable/recovery integration testleri
+- [x] Telegram unavailable/recovery integration testleri
 
 ### Haydar
 
@@ -108,11 +108,11 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Efe
 
-- [ ] daily reconciliation cron ve 24 saat schedule drift raporu
+- [x] daily reconciliation cron ve 24 saat schedule drift raporu
 - [x] system health API: database/changedetection/telegram/outbox
-- [ ] structured logging ve request ID
+- [x] structured logging ve request ID
 - [ ] Docker health checks/restart policy
-- [ ] PostgreSQL ve changedetection datastore backup/restore dokümanı
+- [x] PostgreSQL ve changedetection datastore backup/restore dokümanı
 - [ ] backend test suite ve demo
 
 ### Haydar

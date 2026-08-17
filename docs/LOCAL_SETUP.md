@@ -73,6 +73,8 @@ WEB_BASE_URL=http://localhost:5173
 
 API host makinede `pnpm dev` ile çalışıyorsa `CHANGEDETECTION_BASE_URL=http://localhost:5050` kullanılır. API daha sonra Compose ağına alındığında değer `http://changedetection:5000` olur. Container içi port her zaman `5000` kalır; host tarafında macOS Control Center çakışmasını önlemek için varsayılan `5050` kullanılır.
 
+`.env` repository kökünde tutulur. Hem NestJS (`ConfigModule.forRoot({ envFilePath: ['.env', '../../.env'] })`) hem de `apps/api` içindeki Prisma script'leri bu dosyayı okur. `apps/api/.env` oluşturulursa kök dosyadan önce gelir ve yerel override olarak çalışır.
+
 `CHANGEDETECTION_API_KEY`, changedetection.io içindeki Settings/API ekranından alınır ve yalnız yerel `.env` veya secret store'a yazılır; repository'ye commit edilmez.
 
 Browser fetcher dışarı port açmaz. changedetection.io, `PLAYWRIGHT_DRIVER_URL=ws://browser-fetcher:3000` ile Compose ağı içinden bağlanır. Browser image çoklu mimari manifest digest'iyle sabitlenmiştir.

@@ -121,7 +121,8 @@ export class ObservationService {
       await tx.product.update({
         where: { id: product.id },
         data: {
-          status: ProductStatus.ACTIVE,
+          // Duraklatılmış ürün, yolda olan bir webhook ile ACTIVE'e dönmemeli.
+          status: product.status === ProductStatus.PAUSED ? undefined : ProductStatus.ACTIVE,
           previousPrice:
             priceChanged && product.currentPrice !== null ? product.currentPrice : undefined,
           currentPrice: priceChanged ? nextPrice : undefined,
