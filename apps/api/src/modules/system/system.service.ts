@@ -7,6 +7,7 @@ import {
 } from '../changedetection/changedetection.types';
 import { PrismaService } from '../database/prisma.service';
 import { TelegramGateway } from '../notifications/telegram.gateway';
+import { RECONCILIATION_KEY } from '../reconciliation/reconciliation.service';
 
 @Injectable()
 export class SystemService {
@@ -23,7 +24,7 @@ export class SystemService {
       this.databaseStatus(),
       this.changedetectionStatus(),
     ]);
-    const [pendingNotifications, failedNotifications, failedProducts] =
+    const [pendingNotifications, failedNotifications, failedProducts, reconciliation] =
       database === 'up'
         ? await Promise.all([
             this.prisma.notificationDelivery.count({
@@ -35,8 +36,9 @@ export class SystemService {
               where: { status: NotificationStatus.FAILED, nextAttemptAt: null },
             }),
             this.prisma.product.count({ where: { status: ProductStatus.FAILED } }),
+            this.prisma.appSetting.findUnique({ where: { key: RECONCILIATION_KEY } }),
           ])
-        : [0, 0, 0];
+        : [0, 0, 0, null];
     const telegram = !this.telegram.isConfigured()
       ? 'not_configured'
       : failedNotifications > 0
@@ -48,8 +50,15 @@ export class SystemService {
       services: { database, changedetection, telegram },
       outbox: { pending: pendingNotifications, permanentlyFailed: failedNotifications },
       failedProducts,
+      lastReconciliation: this.readReconciliation(reconciliation?.value),
       checkIntervalSeconds: this.configService.get<number>('CHECK_INTERVAL_SECONDS', 86_400),
     };
+  }
+
+  private readReconciliation(value: unknown): Record<string, unknown> | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    return typeof record.completedAt === 'string' ? record : null;
   }
 
   private async databaseStatus(): Promise<'up' | 'down'> {

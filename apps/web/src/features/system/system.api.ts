@@ -9,6 +9,14 @@ export interface SystemHealth {
   };
   outbox: { pending: number; permanentlyFailed: number };
   failedProducts: number;
+  lastReconciliation: {
+    completedAt: string;
+    checked: number;
+    missing: number;
+    orphaned: number;
+    drifted: number;
+    watchErrors: number;
+  } | null;
 }
 
 export function getSystemHealth() {

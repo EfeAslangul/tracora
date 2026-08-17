@@ -107,6 +107,12 @@ checks.defaultIntervalSeconds = 86400
 reconciliation.lastCompletedAt
 ```
 
+`reconciliation.lastCompletedAt` değeri günlük cron'un son tur özetidir:
+`{ completedAt, checked, missing, orphaned, drifted, watchErrors }`.
+
+EventLog `type` sözlüğü: `EXTRACTION_ERROR`, `CURRENCY_CHANGED`, `RECONCILIATION`.
+`RECONCILIATION` satırlarının `code` değerleri `docs/ARCHITECTURE.md` §10 içindedir.
+
 Secret değerler `AppSetting` içinde tutulmaz.
 
 ## NotificationDelivery

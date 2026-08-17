@@ -7,6 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { getRequestId } from '../logging/request-context';
+import { logJson } from '../logging/log';
 
 interface HttpRequest {
   header(name: string): string | undefined;
@@ -34,15 +36,20 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const request = context.getRequest<HttpRequest>();
     const response = context.getResponse<HttpResponse>();
-    const requestId = request.header('x-request-id')?.slice(0, 100) || randomUUID();
+    // Middleware normalde context'i kurar; filtre DI'sız kurulduğu için ALS'e
+    // doğrudan bakar ve middleware'in çalışmadığı durumlarda header'a düşer.
+    const requestId =
+      getRequestId() || request.header('x-request-id')?.slice(0, 100) || randomUUID();
     const status =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const body = this.toBody(exception, status);
 
     if (status >= 500) {
-      this.logger.error(
-        JSON.stringify({ requestId, method: request.method, path: request.path, status }),
-      );
+      logJson(this.logger, 'error', 'request_failed', {
+        requestId,
+        method: request.method,
+        status,
+      });
     }
 
     response.setHeader('x-request-id', requestId);

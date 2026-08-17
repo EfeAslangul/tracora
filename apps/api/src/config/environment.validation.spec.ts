@@ -36,4 +36,55 @@ describe('environmentValidationSchema', () => {
 
     expect(result.error?.message).toContain('CHANGEDETECTION_BASE_URL');
   });
+
+  it('applies defaults for reconciliation and the manual check cooldown', () => {
+    const result = environmentValidationSchema.validate(validEnvironment);
+
+    expect(result.value).toMatchObject({
+      MANUAL_CHECK_COOLDOWN_MS: 60_000,
+      RECONCILIATION_ENABLED: true,
+      RECONCILIATION_STALE_MULTIPLIER: 1.25,
+    });
+  });
+
+  it('rejects an out-of-range manual check cooldown', () => {
+    const result = environmentValidationSchema.validate({
+      ...validEnvironment,
+      MANUAL_CHECK_COOLDOWN_MS: 100,
+    });
+
+    expect(result.error?.message).toContain('MANUAL_CHECK_COOLDOWN_MS');
+  });
+
+  it('allows an empty webhook secret outside production', () => {
+    const result = environmentValidationSchema.validate({
+      ...validEnvironment,
+      NODE_ENV: 'development',
+      CHANGEDETECTION_WEBHOOK_SECRET: '',
+    });
+
+    expect(result.error).toBeUndefined();
+  });
+
+  it('requires a strong webhook secret in production', () => {
+    const missing = environmentValidationSchema.validate({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+    });
+    expect(missing.error?.message).toContain('CHANGEDETECTION_WEBHOOK_SECRET');
+
+    const tooShort = environmentValidationSchema.validate({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      CHANGEDETECTION_WEBHOOK_SECRET: 'short',
+    });
+    expect(tooShort.error?.message).toContain('CHANGEDETECTION_WEBHOOK_SECRET');
+
+    const valid = environmentValidationSchema.validate({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      CHANGEDETECTION_WEBHOOK_SECRET: 'a'.repeat(64),
+    });
+    expect(valid.error).toBeUndefined();
+  });
 });

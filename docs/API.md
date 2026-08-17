@@ -20,6 +20,29 @@ Frontend consumer: Haydar
 }
 ```
 
+### Request ID
+
+Her istek bir `x-request-id` taşır. İstemci başlık göndermezse sunucu üretir; gönderirse
+değer yalnız `[A-Za-z0-9._-]` karakterlerine indirgenip 100 karaktere kırpılarak kullanılır
+(başlık enjeksiyonuna karşı). Değer her yanıtta `x-request-id` başlığıyla döner ve hata
+gövdesindeki `requestId` alanıyla aynıdır.
+
+Sunucu tarafında her istek tek satırlık yapılandırılmış bir log üretir:
+
+```json
+{
+  "event": "http_request",
+  "requestId": "req-1",
+  "method": "GET",
+  "route": "/api/v1/products/:id",
+  "status": 404,
+  "durationMs": 6
+}
+```
+
+`route` ham URL değil eşleşen rota kalıbıdır; ürün id'si, query değerleri, başlıklar ve
+gövdeler loglanmaz.
+
 ## 2. Product Status
 
 ```text
@@ -176,7 +199,43 @@ Watch create ve initial check kabul edilmeden `201` dönülmez. Watch create ba�
 
 ### GET /products/:id
 
-Ürün bilgisi, fiyat geçmişi, stok geçmişi ve son event'leri döner.
+Ürün bilgisi, fiyat geçmişi, stok geçmişi ve son event'leri döner. Geçmiş dizileri
+eskiden yeniye sıralıdır (grafik için); `recentEvents` yeniden eskiye sıralıdır.
+Sınırlar sabittir: 100 fiyat, 50 stok, 20 event.
+
+```json
+{
+  "id": "uuid",
+  "name": "Example product",
+  "url": "https://shop.example/product",
+  "hostname": "shop.example",
+  "profile": "generic",
+  "status": "ACTIVE",
+  "currentPrice": 1999.9,
+  "previousPrice": 2299.9,
+  "currency": "TRY",
+  "targetPrice": 1799.9,
+  "inStock": true,
+  "notificationsEnabled": true,
+  "lastCheckedAt": "2026-08-10T12:00:00Z",
+  "lastSuccessfulCheckAt": "2026-08-10T12:00:00Z",
+  "lastError": null,
+  "watchId": "watch-uuid",
+  "fetchMode": "HTTP",
+  "priceHistory": [{ "price": 2299.9, "currency": "TRY", "observedAt": "2026-08-09T12:00:00Z" }],
+  "stockHistory": [{ "inStock": true, "observedAt": "2026-08-09T12:00:00Z" }],
+  "recentEvents": [
+    {
+      "type": "EXTRACTION_ERROR",
+      "code": "EXTRACTION_UNSUPPORTED",
+      "message": "Genel profil bu ürün sayfasından fiyat çıkaramadı.",
+      "createdAt": "2026-08-09T12:00:00Z"
+    }
+  ]
+}
+```
+
+Bilinmeyen id `404 PRODUCT_NOT_FOUND`, geçersiz UUID `400 INVALID_REQUEST` döner.
 
 ### PATCH /products/:id
 
@@ -188,17 +247,55 @@ Watch create ve initial check kabul edilmeden `201` dönülmez. Watch create ba�
 }
 ```
 
+Üç alan da opsiyoneldir, en az biri gönderilmelidir; boş gövde `400 INVALID_REQUEST` döner.
+`targetPrice: null` hedef fiyatı temizler. `status` yalnız `ACTIVE` veya `PAUSED` olabilir;
+`PENDING` ve `FAILED` yalnız sistem tarafından atanır.
+
+`PAUSED` yalnız yerel bir alan değildir: webhook her gözlemde ürünü `ACTIVE`'e çektiği için
+duraklatma önce changedetection.io watch'ında uygulanır, ancak başarılı olursa yerel durum
+yazılır. Uzak çağrı başarısızsa `502 CHANGEDETECTION_UNAVAILABLE` döner ve yerel durum değişmez.
+
+Response `GET /products` ile aynı ürün gövdesidir.
+
 ### DELETE /products/:id
 
 Watch ve Product kaydını siler. MVP'de soft delete yoktur.
 
+Önce changedetection.io watch'ı silinir, sonra veritabanı kaydı. Uzak watch zaten yoksa
+(`WATCH_NOT_FOUND`) silme başarılı sayılır; başka bir uzak hata `502` döner ve veritabanı
+kaydı **silinmez** — aksi halde sahipsiz bir watch webhook üretmeye devam ederdi.
+Product silinince WatchBinding, snapshot'lar, EventLog ve NotificationDelivery cascade ile düşer.
+
+```text
+204 No Content
+```
+
 ### POST /products/:id/check
 
-Manuel changedetection.io check tetikler.
+Manuel changedetection.io check tetikler. Sonuç asenkron olarak webhook ile gelir.
+
+```json
+{ "accepted": true, "triggeredAt": "2026-08-10T12:00:00Z" }
+```
+
+`202 Accepted` döner. Ürün başına bir soğuma penceresi vardır (`MANUAL_CHECK_COOLDOWN_MS`,
+varsayılan 60 sn); pencere dolmadan gelen ikinci istek `409 CHECK_ALREADY_RUNNING` döner.
+Pencere `WatchBinding.lastSyncAt` üzerinde tek bir atomik `UPDATE ... WHERE` ile talep edilir,
+bu yüzden eşzamanlı iki istek ikisi birden kazanamaz.
+
+Duraklatılmış ürün `409 PRODUCT_PAUSED`, watch'ı olmayan ürün `404 WATCH_NOT_FOUND` döner.
+Tetikleme hatası ürünü `FAILED` yapmaz; geçici hata olarak `502` döner.
 
 ### POST /products/:id/retry
 
-FAILED ürün için watch oluşturmayı tekrar dener.
+FAILED ürün için watch oluşturmayı tekrar dener. Yalnız `FAILED` durumunda çalışır;
+diğer durumlarda `409 PRODUCT_NOT_RETRYABLE` döner.
+
+Ürün önce `PENDING`'e alınır. Mevcut bir WatchBinding varsa yalnız yeni bir check tetiklenir;
+yoksa watch sıfırdan oluşturulur. `normalizedUrl` daha önce doğrulandığı için URL güvenlik
+doğrulaması tekrarlanmaz — aksi halde geçici bir DNS hatası `UNSAFE_PRODUCT_URL`'e dönüşürdü.
+
+Response `GET /products` ile aynı ürün gövdesidir.
 
 ## 6. Webhook
 
@@ -222,27 +319,55 @@ Başarılı response:
 
 ### GET /dashboard
 
-MVP sonunda:
-
 ```json
 {
   "totalProducts": 8,
   "activeProducts": 6,
   "failedProducts": 1,
-  "recentPriceDrops": []
+  "recentPriceDrops": [
+    {
+      "id": "uuid",
+      "name": "Example product",
+      "url": "https://shop.example/product",
+      "hostname": "shop.example",
+      "currency": "TRY",
+      "previousPrice": 2299.9,
+      "currentPrice": 1999.9,
+      "dropAmount": 300,
+      "dropPercent": 13.04,
+      "observedAt": "2026-08-10T12:00:00Z"
+    }
+  ]
 }
 ```
+
+`recentPriceDrops`, `currentPrice < previousPrice` olan ürünlerden son başarılı kontrol
+zamanına göre en yeni 5 kayıttır.
 
 ## 8. System
 
 ### GET /system/health
 
-- database
-- changedetection
-- telegram (`ready`, `not_configured`, `degraded`)
-- pending notification count
-- last reconciliation
-- failed product count
+```json
+{
+  "status": "ok",
+  "services": { "database": "up", "changedetection": "up", "telegram": "ready" },
+  "outbox": { "pending": 0, "permanentlyFailed": 0 },
+  "failedProducts": 1,
+  "checkIntervalSeconds": 86400,
+  "lastReconciliation": {
+    "completedAt": "2026-08-10T03:00:00Z",
+    "checked": 8,
+    "missing": 0,
+    "orphaned": 0,
+    "drifted": 0,
+    "watchErrors": 0
+  }
+}
+```
+
+`telegram` değerleri `ready`, `not_configured`, `degraded`. `lastReconciliation` günlük
+reconciliation cron'u ilk kez çalışana kadar `null` döner.
 
 ## 9. Minimum Hata Kodları
 
@@ -256,8 +381,10 @@ MVP sonunda:
 - `CHANGEDETECTION_UNAVAILABLE`
 - `WATCH_CREATE_FAILED`
 - `WATCH_NOT_FOUND`
-- `CHECK_ALREADY_RUNNING`
+- `CHECK_ALREADY_RUNNING` (manuel kontrol soğuma penceresi dolmadı)
+- `PRODUCT_PAUSED`
+- `PRODUCT_NOT_RETRYABLE`
 - `INVALID_WEBHOOK_SECRET`
 - `INVALID_WEBHOOK_PAYLOAD`
 - `TELEGRAM_NOT_CONFIGURED`
-- `RATE_LIMITED`
+- `RATE_LIMITED` (uygulama kısıtı: `POST /products/:id/check` için 60 sn'de 10 istek; ayrıca changedetection.io/Telegram 429'ları)

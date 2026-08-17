@@ -4,6 +4,9 @@ import { NotificationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { TelegramDeliveryError } from './telegram.errors';
 import { TelegramGateway } from './telegram.gateway';
+import { logJson } from '../../common/logging/log';
+import { runWithContext } from '../../common/logging/request-context';
+import { randomUUID } from 'node:crypto';
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
 
@@ -32,30 +35,32 @@ export class NotificationWorkerService implements OnModuleInit, OnModuleDestroy 
   async run(): Promise<void> {
     if (this.running || !this.telegram.isConfigured()) return;
     this.running = true;
-    try {
-      const deliveries = await this.claim();
-      for (const delivery of deliveries) {
-        try {
-          await this.telegram.send(delivery.type, delivery.payload);
-          await this.prisma.notificationDelivery.update({
-            where: { id: delivery.id },
-            data: {
-              status: NotificationStatus.SENT,
-              attempts: { increment: 1 },
-              sentAt: new Date(),
-              lockedAt: null,
-              nextAttemptAt: null,
-              lastErrorCode: null,
-              lastErrorMessage: null,
-            },
-          });
-        } catch (error) {
-          await this.fail(delivery.id, delivery.attempts, error);
+    return runWithContext({ requestId: randomUUID(), source: 'notification-worker' }, async () => {
+      try {
+        const deliveries = await this.claim();
+        for (const delivery of deliveries) {
+          try {
+            await this.telegram.send(delivery.type, delivery.payload);
+            await this.prisma.notificationDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: NotificationStatus.SENT,
+                attempts: { increment: 1 },
+                sentAt: new Date(),
+                lockedAt: null,
+                nextAttemptAt: null,
+                lastErrorCode: null,
+                lastErrorMessage: null,
+              },
+            });
+          } catch (error) {
+            await this.fail(delivery.id, delivery.attempts, error);
+          }
         }
+      } finally {
+        this.running = false;
       }
-    } finally {
-      this.running = false;
-    }
+    });
   }
 
   private async claim() {
@@ -107,6 +112,6 @@ export class NotificationWorkerService implements OnModuleInit, OnModuleDestroy 
         lastErrorMessage: deliveryError.message,
       },
     });
-    this.logger.warn(JSON.stringify({ event: 'telegram_delivery_failed', deliveryId, attempts }));
+    logJson(this.logger, 'warn', 'telegram_delivery_failed', { deliveryId, attempts });
   }
 }

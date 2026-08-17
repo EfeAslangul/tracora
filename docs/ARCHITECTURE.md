@@ -184,15 +184,52 @@ Pinned changedetection.io sürümü ilk snapshot için notification üretmediği
 
 ## 10. Reconciliation
 
-Günlük cron:
+Günlük cron (`@Cron`, varsayılan 03:00; `RECONCILIATION_ENABLED` ile kapatılabilir):
 
-1. Active WatchBinding kayıtlarını oku.
+1. WatchBinding kayıtlarını oku.
 2. changedetection.io watch listesini al.
 3. Eksik/fazla watch tespit et.
 4. EventLog yaz.
 5. Otomatik düzeltme yerine ilk sürümde raporla.
-
 6. Schedule'ın 24 saat olduğunu doğrula; sapmayı raporla.
+
+Tüm satırlar `EventLog.type = RECONCILIATION` ile yazılır, `code` ayrımı yapar:
+
+| code                   | Anlamı                                              |
+| ---------------------- | --------------------------------------------------- |
+| `WATCH_MISSING`        | Binding var, changedetection.io tarafında watch yok |
+| `WATCH_ORPHANED`       | changedetection.io tarafında watch var, binding yok |
+| `SCHEDULE_DRIFT`       | Watch beklenen aralıkta kontrol edilmemiş           |
+| `WATCH_ERROR_REPORTED` | ACTIVE ürünün watch'ı hata bildiriyor               |
+| `COMPLETED`            | Tur özeti (sayaçlar `metadata` içinde)              |
+
+Sonuç ayrıca `AppSetting` içindeki `reconciliation.lastCompletedAt` anahtarına yazılır ve
+`GET /system/health` üzerinden `lastReconciliation` olarak sunulur.
+
+İki bilinçli sınır:
+
+- `WatchSummary` bir kontrol aralığı alanı taşımaz. Bu yüzden schedule sapması aralık
+  karşılaştırmasıyla değil, `lastCheckedAt` boşluğundan çıkarılır: eşik
+  `CHECK_INTERVAL_SECONDS × RECONCILIATION_STALE_MULTIPLIER` (varsayılan 30 saat).
+- changedetection.io örneği yalnız bu uygulamaya aittir (ADR-0001). Kullanıcı arayüzden
+  elle watch eklerse `WATCH_ORPHANED` olarak raporlanır; bu bir yanlış pozitif değil,
+  bilinçli olarak görünür kılınan bir durumdur.
+
+## 10.1 Loglama ve Request ID
+
+`RequestIdMiddleware` her HTTP isteği için `AsyncLocalStorage` tabanlı bir bağlam kurar.
+Bağlam DI gerektirmediği için `main.ts` içinde `new` ile kurulan `DomainExceptionFilter`
+tarafından da okunabilir. Ek bir log kütüphanesi kullanılmaz; tüm satırlar `logJson` ile
+`{ "event": ..., "requestId": ..., ... }` biçiminde yazılır.
+
+Arka plan işleri HTTP bağlamı taşımaz. `BaselineSyncService`, `NotificationWorkerService`
+ve `ReconciliationService` her turu kendi `requestId`'si ve `source` etiketiyle sarar,
+böylece bir turun tüm satırları ilişkilendirilebilir.
+
+Secret'lar loglanmaz. Interceptor yalnız beyaz listelenmiş alanları yazar: `method`,
+eşleşen rota kalıbı, `status`, `durationMs`. Ham URL, başlıklar ve gövdeler hiçbir zaman
+loglanmaz — özellikle `x-webhook-secret`, `CHANGEDETECTION_API_KEY`, `TELEGRAM_BOT_TOKEN`
+ve secret'ı query parametresinde taşıyan Apprise notification URL'i.
 
 ## 11. Bağımlılık Koruması
 

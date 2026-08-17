@@ -7,6 +7,9 @@ import {
 } from '../changedetection/changedetection.types';
 import { PrismaService } from '../database/prisma.service';
 import { ObservationService } from '../webhooks/observation.service';
+import { logJson } from '../../common/logging/log';
+import { runWithContext } from '../../common/logging/request-context';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class BaselineSyncService implements OnModuleInit, OnModuleDestroy {
@@ -35,28 +38,30 @@ export class BaselineSyncService implements OnModuleInit, OnModuleDestroy {
   async synchronize(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    try {
-      const products = await this.prisma.product.findMany({
-        where: { status: ProductStatus.ACTIVE, lastSuccessfulCheckAt: null },
-        include: { watchBinding: true },
-        orderBy: { createdAt: 'asc' },
-        take: 20,
-      });
-      for (const product of products) {
-        if (!product.watchBinding) continue;
-        await this.synchronizeProduct(product.id, product.watchBinding).catch((error: unknown) => {
-          this.logger.warn(
-            JSON.stringify({
-              event: 'baseline_sync_failed',
-              productId: product.id,
-              error: error instanceof Error ? error.name : 'UnknownError',
-            }),
-          );
+    // Arka plan turları HTTP context'i taşımaz; her tur kendi korelasyon kimliğini alır.
+    return runWithContext({ requestId: randomUUID(), source: 'baseline-sync' }, async () => {
+      try {
+        const products = await this.prisma.product.findMany({
+          where: { status: ProductStatus.ACTIVE, lastSuccessfulCheckAt: null },
+          include: { watchBinding: true },
+          orderBy: { createdAt: 'asc' },
+          take: 20,
         });
+        for (const product of products) {
+          if (!product.watchBinding) continue;
+          await this.synchronizeProduct(product.id, product.watchBinding).catch(
+            (error: unknown) => {
+              logJson(this.logger, 'warn', 'baseline_sync_failed', {
+                productId: product.id,
+                error: error instanceof Error ? error.name : 'UnknownError',
+              });
+            },
+          );
+        }
+      } finally {
+        this.running = false;
       }
-    } finally {
-      this.running = false;
-    }
+    });
   }
 
   private async synchronizeProduct(
