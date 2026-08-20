@@ -7,3 +7,13 @@ apps/api/prisma/*.db
 *.log
 .DS_Store
 .claude/
+
+# Android (apps/android)
+.gradle/
+apps/android/**/build/
+apps/android/local.properties
+apps/android/.cxx/
+*.apk
+*.aab
+.idea/
+*.iml
