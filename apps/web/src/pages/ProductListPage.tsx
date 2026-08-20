@@ -1,9 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
+import { Link } from 'react-router-dom';
 import { z } from 'zod';
 import { LoadingState } from '../components/LoadingState';
-import { createProduct, getProducts } from '../features/products/product.api';
+import { createProduct, getProducts, retryProduct } from '../features/products/product.api';
 import type { ProductInput, ProductListItem } from '../features/products/product.types';
 import { ApiError } from '../services/api-client';
 
@@ -111,6 +112,11 @@ export function ProductListPage() {
 }
 
 function ProductCard({ product }: { product: ProductListItem }) {
+  const queryClient = useQueryClient();
+  const retry = useMutation({
+    mutationFn: () => retryProduct(product.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+  });
   const price =
     product.currentPrice === null
       ? 'İlk kontrol bekleniyor'
@@ -123,7 +129,9 @@ function ProductCard({ product }: { product: ProductListItem }) {
       <div className="product-card-header">
         <div>
           <span className={`status status-${product.status.toLowerCase()}`}>{product.status}</span>
-          <h2>{product.name ?? product.hostname}</h2>
+          <h2>
+            <Link to={`/products/${product.id}`}>{product.name ?? product.hostname}</Link>
+          </h2>
         </div>
         <strong className="price">{price}</strong>
       </div>
@@ -161,6 +169,21 @@ function ProductCard({ product }: { product: ProductListItem }) {
           {product.lastError.message}
         </p>
       )}
+      <div className="actions card-actions">
+        <Link className="button secondary" to={`/products/${product.id}`}>
+          Detaylar
+        </Link>
+        {product.status === 'FAILED' && (
+          <button
+            className="button primary"
+            type="button"
+            disabled={retry.isPending}
+            onClick={() => retry.mutate()}
+          >
+            {retry.isPending ? 'Yeniden deneniyor…' : 'Yeniden dene'}
+          </button>
+        )}
+      </div>
     </article>
   );
 }

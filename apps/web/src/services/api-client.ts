@@ -22,8 +22,19 @@ export class ApiClient {
     return this.request<T>(path);
   }
 
-  async post<TResponse, TBody>(path: string, body: TBody): Promise<TResponse> {
-    return this.request<TResponse>(path, { method: 'POST', body: JSON.stringify(body) });
+  async post<TResponse, TBody>(path: string, body?: TBody): Promise<TResponse> {
+    return this.request<TResponse>(path, {
+      method: 'POST',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  async patch<TResponse, TBody>(path: string, body: TBody): Promise<TResponse> {
+    return this.request<TResponse>(path, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
+  async delete<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' });
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
