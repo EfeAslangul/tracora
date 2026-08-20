@@ -89,9 +89,9 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 
 ### Haydar
 
-- [ ] Product detail ve fiyat grafiği
+- [x] Product detail ve fiyat grafiği
 - [x] stok ve son kontrol durumu
-- [ ] manual check ve FAILED retry UI
+- [x] manual check ve FAILED retry UI
 - [x] hata kodu kullanıcı mesajları
 - [x] Telegram ready/not_configured/degraded göstergesi
 - [x] hedef fiyat ve notification tercih UX'i
@@ -143,3 +143,16 @@ Görevler bağımlılık sırasına göre yazılmıştır. Her PR lint, type-che
 - [ ] Profil destek durumu ve retry kullanıcı deneyimi
 - [ ] Yeni domain profil önceliklendirme/backlog süreci
 - [ ] Profil kabul testleri ve sürüm notları
+
+## Sprint 5 — Android MVP (Haydar)
+
+`TEAM/HAYDAR_ANDROID_TASKS.md`'e bakınız. Efe bu alana dokunmaz — iOS'u ayrı native olarak kendisi yazar.
+
+- [x] Kotlin + Jetpack Compose proje iskeleti (`apps/android`)
+- [x] Retrofit/kotlinx.serialization networking katmanı, `docs/API.md` kontratına uyumlu DTO'lar
+- [x] Ürün listesi ekranı (listeleme, ekleme, FAILED üründe hızlı yeniden dene)
+- [x] Ürün detay ekranı (fiyat grafiği, manuel kontrol, yeniden dene, duraklat/aktif et, sil)
+- [x] ViewModel birim testleri (FakeProductApi ile)
+- [x] CLI'da gerçek derleme doğrulaması (Android SDK 35 + JDK 17 + Gradle 8.9: `testDebugUnitTest` ve `assembleDebug` BUILD SUCCESSFUL)
+- [ ] Android Studio'da emülatör/cihazda görsel ve etkileşim doğrulaması (Haydar'ın yapması gerekiyor)
+- [ ] Onboarding/setup ekranı (bilinçli olarak bu sprintte kapsam dışı bırakıldı)

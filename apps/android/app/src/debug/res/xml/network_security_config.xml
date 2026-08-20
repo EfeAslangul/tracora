@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only: the API runs over plain HTTP in local development (see docs/API.md,
+  docker-compose.yml), and Android blocks cleartext traffic by default since API 28. This file
+  lives under src/debug so cleartext is only ever permitted in debug builds — a release build
+  would need a real HTTPS backend and would not merge this config in.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
