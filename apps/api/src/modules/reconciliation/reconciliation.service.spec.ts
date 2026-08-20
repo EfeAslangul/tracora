@@ -16,16 +16,23 @@ const watch = (id: string, overrides: Partial<Record<string, unknown>> = {}) => 
   ...overrides,
 });
 
-const binding = (externalWatchId: string, status: ProductStatus = ProductStatus.ACTIVE) => ({
-  id: `binding-${externalWatchId}`,
-  productId: `product-${externalWatchId}`,
+const localWatch = (
+  externalWatchId: string,
+  products: Array<{ status?: ProductStatus; suffix?: string }> = [{}],
+) => ({
+  id: `row-${externalWatchId}`,
   externalWatchId,
-  product: { id: `product-${externalWatchId}`, status, url: 'https://shop.example/product' },
+  normalizedUrl: 'https://shop.example/product',
+  products: products.map((product, index) => ({
+    id: `product-${externalWatchId}${product.suffix ?? (index === 0 ? '' : `-${index}`)}`,
+    status: product.status ?? ProductStatus.ACTIVE,
+    url: 'https://shop.example/product',
+  })),
 });
 
 describe('ReconciliationService', () => {
   const prisma = {
-    watchBinding: { findMany: jest.fn() },
+    watch: { findMany: jest.fn() },
     eventLog: { createMany: jest.fn(), create: jest.fn() },
     appSetting: { upsert: jest.fn() },
     $transaction: jest.fn(),
@@ -55,7 +62,7 @@ describe('ReconciliationService', () => {
   afterEach(() => jest.useRealTimers());
 
   it('reports nothing but a summary when everything matches', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([watch('watch-1')]);
 
     const report = await service.reconcile();
@@ -74,8 +81,8 @@ describe('ReconciliationService', () => {
     expect(prisma.appSetting.upsert).toHaveBeenCalled();
   });
 
-  it('reports a binding whose remote watch is gone', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+  it('reports a watch that is gone on the remote side', async () => {
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([]);
 
     const report = await service.reconcile();
@@ -86,8 +93,8 @@ describe('ReconciliationService', () => {
     ]);
   });
 
-  it('reports a remote watch with no binding', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([]);
+  it('reports a remote watch with no local row', async () => {
+    prisma.watch.findMany.mockResolvedValue([]);
     changedetection.listWatches.mockResolvedValue([watch('stray')]);
 
     const report = await service.reconcile();
@@ -97,7 +104,7 @@ describe('ReconciliationService', () => {
   });
 
   it('reports schedule drift past the stale threshold', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([
       // 86400 * 1.25 = 30 saat eşiği; 40 saat sapmadır.
       watch('watch-1', { lastCheckedAt: new Date(now.getTime() - 40 * 3_600_000) }),
@@ -110,14 +117,14 @@ describe('ReconciliationService', () => {
   });
 
   it('treats a never-checked watch as drift', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([watch('watch-1', { lastCheckedAt: null })]);
 
     await expect(service.reconcile()).resolves.toMatchObject({ drifted: 1 });
   });
 
   it('reports an upstream watch error for active products', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([watch('watch-1', { lastError: 'timeout' })]);
 
     const report = await service.reconcile();
@@ -129,7 +136,9 @@ describe('ReconciliationService', () => {
   });
 
   it('skips drift and error checks for non-active products', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1', ProductStatus.PAUSED)]);
+    prisma.watch.findMany.mockResolvedValue([
+      localWatch('watch-1', [{ status: ProductStatus.PAUSED }]),
+    ]);
     changedetection.listWatches.mockResolvedValue([
       watch('watch-1', { lastCheckedAt: null, lastError: 'timeout' }),
     ]);
@@ -137,8 +146,34 @@ describe('ReconciliationService', () => {
     await expect(service.reconcile()).resolves.toMatchObject({ drifted: 0, watchErrors: 0 });
   });
 
+  it('writes one row per owner of a shared watch', async () => {
+    prisma.watch.findMany.mockResolvedValue([
+      localWatch('watch-1', [{ suffix: '-a' }, { suffix: '-b' }]),
+    ]);
+    changedetection.listWatches.mockResolvedValue([watch('watch-1', { lastError: 'timeout' })]);
+
+    const report = await service.reconcile();
+
+    // Bulgu watch başına sayılır ama her sahibin geçmişine ayrı yazılır.
+    expect(report).toMatchObject({ watchErrors: 1 });
+    expect(rows().map((row: { productId: string }) => row.productId)).toEqual([
+      'product-watch-1-a',
+      'product-watch-1-b',
+    ]);
+  });
+
+  it('reports a local watch that lost every owner', async () => {
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1', [])]);
+    changedetection.listWatches.mockResolvedValue([watch('watch-1')]);
+
+    const report = await service.reconcile();
+
+    expect(report).toMatchObject({ orphaned: 1 });
+    expect(rows()).toEqual([expect.objectContaining({ code: 'WATCH_UNOWNED', productId: null })]);
+  });
+
   it('never repairs anything automatically', async () => {
-    prisma.watchBinding.findMany.mockResolvedValue([binding('watch-1')]);
+    prisma.watch.findMany.mockResolvedValue([localWatch('watch-1')]);
     changedetection.listWatches.mockResolvedValue([watch('stray')]);
 
     await service.reconcile();
@@ -150,7 +185,7 @@ describe('ReconciliationService', () => {
 
   it('does not run concurrently', async () => {
     let release: () => void = () => undefined;
-    prisma.watchBinding.findMany.mockReturnValue(
+    prisma.watch.findMany.mockReturnValue(
       new Promise((resolve) => {
         release = () => resolve([]);
       }),
@@ -172,6 +207,6 @@ describe('ReconciliationService', () => {
 
     await disabled.handleCron();
 
-    expect(prisma.watchBinding.findMany).not.toHaveBeenCalled();
+    expect(prisma.watch.findMany).not.toHaveBeenCalled();
   });
 });

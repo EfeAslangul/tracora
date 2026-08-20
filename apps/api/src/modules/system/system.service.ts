@@ -19,7 +19,7 @@ export class SystemService {
     private readonly changedetection: ChangeDetectionClient,
   ) {}
 
-  async health() {
+  async health(userId: string) {
     const [database, changedetection] = await Promise.all([
       this.databaseStatus(),
       this.changedetectionStatus(),
@@ -29,17 +29,22 @@ export class SystemService {
         ? await Promise.all([
             this.prisma.notificationDelivery.count({
               where: {
+                product: { userId },
                 status: { in: [NotificationStatus.PENDING, NotificationStatus.PROCESSING] },
               },
             }),
             this.prisma.notificationDelivery.count({
-              where: { status: NotificationStatus.FAILED, nextAttemptAt: null },
+              where: {
+                product: { userId },
+                status: NotificationStatus.FAILED,
+                nextAttemptAt: null,
+              },
             }),
-            this.prisma.product.count({ where: { status: ProductStatus.FAILED } }),
+            this.prisma.product.count({ where: { userId, status: ProductStatus.FAILED } }),
             this.prisma.appSetting.findUnique({ where: { key: RECONCILIATION_KEY } }),
           ])
         : [0, 0, 0, null];
-    const telegram = !this.telegram.isConfigured()
+    const telegram = !this.telegram.hasToken()
       ? 'not_configured'
       : failedNotifications > 0
         ? 'degraded'

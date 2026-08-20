@@ -1,12 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { User } from '@prisma/client';
 import { DomainException } from '../../common/errors/domain.exception';
 import { PrismaService } from '../database/prisma.service';
+import { TelegramGateway } from '../notifications/telegram.gateway';
 import type { ProductListItem } from '../products/product.presenter';
 import { ProductsService } from '../products/products.service';
 import type { SetupDto } from './dto/setup.dto';
-
-const ONBOARDING_KEY = 'onboarding.completedAt';
 
 @Injectable()
 export class SettingsService {
@@ -14,16 +14,16 @@ export class SettingsService {
     private readonly prisma: PrismaService,
     private readonly productsService: ProductsService,
     private readonly configService: ConfigService,
+    private readonly telegram: TelegramGateway,
   ) {}
 
-  async status() {
-    const setting = await this.prisma.appSetting.findUnique({ where: { key: ONBOARDING_KEY } });
-    const completedAt = this.readCompletedAt(setting?.value);
-    const telegramEnabled = this.configService.get<boolean>('TELEGRAM_ENABLED', true);
-    const telegramConfigured =
-      telegramEnabled &&
-      Boolean(this.configService.get<string>('TELEGRAM_BOT_TOKEN', '').trim()) &&
-      Boolean(this.configService.get<string>('TELEGRAM_CHAT_ID', '').trim());
+  /**
+   * Onboarding artık global bir AppSetting değil kullanıcı alanıdır: her
+   * kullanıcı kendi ilk kurulumunu yapar.
+   */
+  status(user: User) {
+    const completedAt = user.onboardingCompletedAt?.toISOString() ?? null;
+    const telegramConfigured = this.telegram.hasToken() && user.telegramChatId !== null;
 
     return {
       required: completedAt === null,
@@ -36,9 +36,8 @@ export class SettingsService {
     };
   }
 
-  async setup(input: SetupDto) {
-    const current = await this.status();
-    if (!current.required) {
+  async setup(user: User, input: SetupDto) {
+    if (user.onboardingCompletedAt !== null) {
       throw new DomainException(
         'SETUP_ALREADY_COMPLETED',
         'İlk kurulum daha önce tamamlanmış.',
@@ -50,7 +49,7 @@ export class SettingsService {
     const failed: Array<{ url: string; code: string; message: string }> = [];
     for (const product of input.products) {
       try {
-        created.push(await this.productsService.create(product));
+        created.push(await this.productsService.create(user.id, product));
       } catch (error) {
         const failure =
           error instanceof DomainException
@@ -73,19 +72,12 @@ export class SettingsService {
       );
     }
 
-    const completedAt = new Date().toISOString();
-    await this.prisma.appSetting.upsert({
-      where: { key: ONBOARDING_KEY },
-      create: { key: ONBOARDING_KEY, value: { completedAt } },
-      update: { value: { completedAt } },
+    const completedAt = new Date();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { onboardingCompletedAt: completedAt },
     });
 
-    return { completed: true, completedAt, created, failed };
-  }
-
-  private readCompletedAt(value: unknown): string | null {
-    if (typeof value !== 'object' || value === null || !('completedAt' in value)) return null;
-    const completedAt = (value as { completedAt?: unknown }).completedAt;
-    return typeof completedAt === 'string' ? completedAt : null;
+    return { completed: true, completedAt: completedAt.toISOString(), created, failed };
   }
 }

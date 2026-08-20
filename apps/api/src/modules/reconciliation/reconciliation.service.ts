@@ -53,18 +53,18 @@ export class ReconciliationService {
     if (this.running) return null;
     this.running = true;
     try {
-      const [bindings, watches] = await Promise.all([
-        this.prisma.watchBinding.findMany({
-          include: { product: { select: { id: true, status: true, url: true } } },
+      const [localWatches, remoteWatches] = await Promise.all([
+        this.prisma.watch.findMany({
+          include: { products: { select: { id: true, status: true, url: true } } },
         }),
         this.changedetection.listWatches(),
       ]);
 
-      const remote = new Map(watches.map((watch) => [watch.id, watch]));
-      const bound = new Set(bindings.map((binding) => binding.externalWatchId));
+      const remote = new Map(remoteWatches.map((watch) => [watch.id, watch]));
+      const bound = new Set(localWatches.map((watch) => watch.externalWatchId));
       const rows: Prisma.EventLogCreateManyInput[] = [];
       const report: ReconciliationReport = {
-        checked: bindings.length,
+        checked: localWatches.length,
         missing: 0,
         orphaned: 0,
         drifted: 0,
@@ -74,54 +74,75 @@ export class ReconciliationService {
       const staleAfterMs = this.staleAfterMs();
       const now = Date.now();
 
-      for (const binding of bindings) {
-        const watch = remote.get(binding.externalWatchId);
+      for (const local of localWatches) {
+        // Watch paylaşımlı: bulgular ona bağlı her ürüne ayrı ayrı yazılır ki
+        // her sahip kendi ürün geçmişinde görebilsin.
+        const productIds = local.products.map((product) => product.id);
+        const watch = remote.get(local.externalWatchId);
         if (!watch) {
           report.missing += 1;
+          const metadata = { externalWatchId: local.externalWatchId, url: local.normalizedUrl };
+          rows.push(
+            ...this.forEachProduct(productIds, {
+              code: 'WATCH_MISSING',
+              message: 'Ürünün changedetection.io watch kaydı bulunamadı.',
+              metadata,
+            }),
+          );
+          continue;
+        }
+
+        // Sahibi kalmamış yerel watch: uzak tarafta hâlâ çekiliyor ama sonucu
+        // kimseye yazılmıyor. ARCHITECTURE §10 gereği yalnız raporlanır.
+        if (productIds.length === 0) {
+          report.orphaned += 1;
           rows.push({
-            productId: binding.productId,
+            productId: null,
             type: RECONCILIATION_EVENT,
-            code: 'WATCH_MISSING',
-            message: 'Ürünün changedetection.io watch kaydı bulunamadı.',
-            metadata: { externalWatchId: binding.externalWatchId, url: binding.product.url },
+            code: 'WATCH_UNOWNED',
+            message: 'Hiçbir ürüne bağlı olmayan watch kaydı bulundu.',
+            metadata: { externalWatchId: local.externalWatchId, url: local.normalizedUrl },
           });
           continue;
         }
 
-        if (binding.product.status !== ProductStatus.ACTIVE) continue;
+        const activeProductIds = local.products
+          .filter((product) => product.status === ProductStatus.ACTIVE)
+          .map((product) => product.id);
+        if (activeProductIds.length === 0) continue;
 
         // WatchSummary bir interval alanı taşımaz; schedule sapması ancak
         // lastCheckedAt boşluğundan çıkarılabilir.
         const ageMs = watch.lastCheckedAt ? now - watch.lastCheckedAt.getTime() : null;
         if (ageMs === null || ageMs > staleAfterMs) {
           report.drifted += 1;
-          rows.push({
-            productId: binding.productId,
-            type: RECONCILIATION_EVENT,
-            code: 'SCHEDULE_DRIFT',
-            message: 'Watch beklenen aralıkta kontrol edilmemiş.',
-            metadata: {
-              externalWatchId: binding.externalWatchId,
-              lastCheckedAt: watch.lastCheckedAt?.toISOString() ?? null,
-              staleAfterSeconds: Math.round(staleAfterMs / 1_000),
-              ageSeconds: ageMs === null ? null : Math.round(ageMs / 1_000),
-            },
-          });
+          rows.push(
+            ...this.forEachProduct(activeProductIds, {
+              code: 'SCHEDULE_DRIFT',
+              message: 'Watch beklenen aralıkta kontrol edilmemiş.',
+              metadata: {
+                externalWatchId: local.externalWatchId,
+                lastCheckedAt: watch.lastCheckedAt?.toISOString() ?? null,
+                staleAfterSeconds: Math.round(staleAfterMs / 1_000),
+                ageSeconds: ageMs === null ? null : Math.round(ageMs / 1_000),
+              },
+            }),
+          );
         }
 
         if (watch.lastError) {
           report.watchErrors += 1;
-          rows.push({
-            productId: binding.productId,
-            type: RECONCILIATION_EVENT,
-            code: 'WATCH_ERROR_REPORTED',
-            message: watch.lastError,
-            metadata: { externalWatchId: binding.externalWatchId },
-          });
+          rows.push(
+            ...this.forEachProduct(activeProductIds, {
+              code: 'WATCH_ERROR_REPORTED',
+              message: watch.lastError,
+              metadata: { externalWatchId: local.externalWatchId },
+            }),
+          );
         }
       }
 
-      for (const watch of watches) {
+      for (const watch of remoteWatches) {
         if (bound.has(watch.id)) continue;
         report.orphaned += 1;
         rows.push({
@@ -159,6 +180,30 @@ export class ReconciliationService {
     } finally {
       this.running = false;
     }
+  }
+
+  private forEachProduct(
+    productIds: string[],
+    finding: { code: string; message: string; metadata: Prisma.JsonObject },
+  ): Prisma.EventLogCreateManyInput[] {
+    if (productIds.length === 0) {
+      return [
+        {
+          productId: null,
+          type: RECONCILIATION_EVENT,
+          code: finding.code,
+          message: finding.message,
+          metadata: finding.metadata,
+        },
+      ];
+    }
+    return productIds.map((productId) => ({
+      productId,
+      type: RECONCILIATION_EVENT,
+      code: finding.code,
+      message: finding.message,
+      metadata: finding.metadata,
+    }));
   }
 
   private staleAfterMs(): number {

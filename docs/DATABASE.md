@@ -1,5 +1,25 @@
 # Veritabanı Taslağı
 
+## User
+
+Firebase Auth kullanıcısının yerel izdüşümü. Ayrı bir kayıt ucu yoktur; hesap Firebase'de
+açılır, ilk kimliği doğrulanmış istekte bu satır oluşur.
+
+- id UUID
+- firebaseUid varchar(128) unique
+- email varchar(320) nullable
+- emailVerified boolean
+- displayName varchar(200) nullable
+- signInProvider varchar(50) nullable (`password`, `apple.com`, `google.com`)
+- telegramChatId varchar(64) nullable
+- onboardingCompletedAt timestamp nullable
+- lastSeenAt timestamp nullable
+- createdAt
+- updatedAt
+
+`email` unique **değildir**: Firebase'de aynı e-posta farklı sağlayıcılarla ayrı UID alabilir.
+Tekillik `firebaseUid` üzerindedir.
+
 ## Store
 
 - id UUID
@@ -15,7 +35,9 @@
 ## Product
 
 - id UUID
+- userId UUID (`User`, on delete cascade)
 - storeId UUID
+- watchId UUID nullable (`Watch`, on delete set null)
 - name varchar nullable
 - url text
 - normalizedUrl text
@@ -37,23 +59,46 @@
 Unique:
 
 ```text
-(storeId, normalizedUrl)
+(userId, storeId, normalizedUrl)
+```
+
+Aynı URL'yi birden çok kullanıcı takip edebilir; tekillik kullanıcı içindedir.
+
+Index:
+
+```text
+(userId, createdAt desc)
+(watchId)
 ```
 
 Her public hostname ilk ürün eklenirken `GENERIC` store olarak oluşturulabilir. Sonradan doğrulanmış bir site profile eklendiğinde aynı Store kaydı `profileKey/profileVersion` ile güncellenir.
 
-## WatchBinding
+## Watch
+
+Watch ürünün değil URL'nin varlığıdır: aynı normalize URL'yi izleyen tüm kullanıcıların
+ürünleri tek watch'a bağlanır (`Watch` 1:N `Product`) ve gelen gözlem hepsine fan-out edilir.
+Gerekçe: `docs/ADR/ADR-0005-firebase-auth-and-multi-tenancy.md`.
 
 - id UUID
-- productId UUID
+- storeId UUID
+- normalizedUrl text
 - externalWatchId varchar unique
 - requestedFetchMode enum (`AUTO`, `HTTP`, `BROWSER`)
 - fetchMode enum (`HTTP`, `BROWSER`)
-- lastSyncAt timestamp nullable
+- lastSyncAt timestamp nullable (baseline senkronunun tükettiği son sonuç)
+- lastTriggeredAt timestamp nullable (manuel kontrol soğuma penceresi)
+- paused boolean
 - createdAt
 - updatedAt
 
-Başlangıçta Product 1:1 WatchBinding. Beden spike sonucu 1:N gerekirse ADR ile değiştirilir.
+Unique:
+
+```text
+(storeId, normalizedUrl)
+```
+
+`lastSyncAt` ve `lastTriggeredAt` ayrıdır: biri "bu sonucu işledim", diğeri "az önce kontrol
+tetikledim" anlamına gelir ve paylaşılan watch'ta ikisi birbirini bastırmamalıdır.
 
 `requestedFetchMode=AUTO` ilk olarak `fetchMode=HTTP` oluşturur. Baseline fiyat çıkaramazsa yalnız bir kez `BROWSER` moduna yükseltilir; kalıcı mod restart sonrasında tekrar denenmez.
 
@@ -64,7 +109,15 @@ Başlangıçta Product 1:1 WatchBinding. Beden spike sonucu 1:N gerekirse ADR il
 - price decimal
 - currency varchar(3)
 - observedAt timestamp
-- sourceEventKey varchar unique
+- sourceEventKey varchar
+
+Unique:
+
+```text
+(productId, sourceEventKey)
+```
+
+Tek webhook N ürüne yazıldığı için `sourceEventKey` global değil ürün başına tekildir.
 
 Index:
 
@@ -79,7 +132,7 @@ Index:
 - inStock boolean
 - availableSizes jsonb nullable
 - observedAt timestamp
-- sourceEventKey varchar unique
+- sourceEventKey varchar (unique: `(productId, sourceEventKey)`)
 
 ## EventLog
 
@@ -102,15 +155,18 @@ Yalnız önemli durum ve hatalar:
 MVP anahtarları:
 
 ```text
-onboarding.completedAt
 checks.defaultIntervalSeconds = 86400
 reconciliation.lastCompletedAt
 ```
 
+Onboarding artık burada değil `User.onboardingCompletedAt` alanındadır: kurulum durumu
+sunucu geneli değil kullanıcı başınadır.
+
 `reconciliation.lastCompletedAt` değeri günlük cron'un son tur özetidir:
 `{ completedAt, checked, missing, orphaned, drifted, watchErrors }`.
 
-EventLog `type` sözlüğü: `EXTRACTION_ERROR`, `CURRENCY_CHANGED`, `RECONCILIATION`.
+EventLog `type` sözlüğü: `EXTRACTION_ERROR`, `CURRENCY_CHANGED`, `RECONCILIATION`,
+`ORPHANED_WATCH`.
 `RECONCILIATION` satırlarının `code` değerleri `docs/ARCHITECTURE.md` §10 içindedir.
 
 Secret değerler `AppSetting` içinde tutulmaz.
@@ -136,7 +192,7 @@ Secret değerler `AppSetting` içinde tutulmaz.
 Unique:
 
 ```text
-(sourceEventKey, channel, type)
+(productId, sourceEventKey, channel, type)
 ```
 
 Index:

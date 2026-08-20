@@ -15,11 +15,14 @@ import { Throttle } from '@nestjs/throttler';
 import { DomainThrottlerGuard } from '../../common/throttling/domain-throttler.guard';
 import {
   ApiAcceptedResponse,
+  ApiBearerAuth,
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { uuidParam } from '../../common/pipes/uuid-param.pipe';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -27,6 +30,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 
 @ApiTags('products')
+@ApiBearerAuth()
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -57,8 +61,8 @@ export class ProductsController {
       },
     },
   })
-  list(@Query() query: ListProductsQueryDto) {
-    return this.productsService.list(query);
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListProductsQueryDto) {
+    return this.productsService.list(user.id, query);
   }
 
   @Post()
@@ -76,8 +80,8 @@ export class ProductsController {
       },
     },
   })
-  create(@Body() input: CreateProductDto) {
-    return this.productsService.create(input);
+  create(@CurrentUser() user: AuthenticatedUser, @Body() input: CreateProductDto) {
+    return this.productsService.create(user.id, input);
   }
 
   @Get(':id')
@@ -110,23 +114,30 @@ export class ProductsController {
       },
     },
   })
-  detail(@Param('id', uuidParam()) id: string) {
-    return this.productsService.detail(id);
+  detail(@CurrentUser() user: AuthenticatedUser, @Param('id', uuidParam()) id: string) {
+    return this.productsService.detail(user.id, id);
   }
 
   @Patch(':id')
   @ApiOkResponse({
     description: 'Updated product. PAUSED is also applied on the changedetection.io watch.',
   })
-  update(@Param('id', uuidParam()) id: string, @Body() input: UpdateProductDto) {
-    return this.productsService.update(id, input);
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuidParam()) id: string,
+    @Body() input: UpdateProductDto,
+  ) {
+    return this.productsService.update(user.id, id, input);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiNoContentResponse({ description: 'Watch and product removed. No soft delete.' })
-  remove(@Param('id', uuidParam()) id: string): Promise<void> {
-    return this.productsService.remove(id);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuidParam()) id: string,
+  ): Promise<void> {
+    return this.productsService.remove(user.id, id);
   }
 
   @Post(':id/check')
@@ -137,13 +148,13 @@ export class ProductsController {
     description: 'Manual check triggered. The result arrives asynchronously via webhook.',
     schema: { example: { accepted: true, triggeredAt: '2026-08-10T12:00:00Z' } },
   })
-  check(@Param('id', uuidParam()) id: string) {
-    return this.productsService.check(id);
+  check(@CurrentUser() user: AuthenticatedUser, @Param('id', uuidParam()) id: string) {
+    return this.productsService.check(user.id, id);
   }
 
   @Post(':id/retry')
   @ApiOkResponse({ description: 'Watch creation retried for a FAILED product.' })
-  retry(@Param('id', uuidParam()) id: string) {
-    return this.productsService.retry(id);
+  retry(@CurrentUser() user: AuthenticatedUser, @Param('id', uuidParam()) id: string) {
+    return this.productsService.retry(user.id, id);
   }
 }

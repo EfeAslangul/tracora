@@ -13,9 +13,16 @@ describe('DashboardService integration', () => {
 
   beforeAll(() => prisma.$connect());
   afterAll(() => prisma.$disconnect());
+  let userId = '';
+  let otherUserId = '';
+
   beforeEach(async () => {
     await prisma.product.deleteMany();
+    await prisma.watch.deleteMany();
     await prisma.store.deleteMany();
+    await prisma.user.deleteMany();
+    userId = (await prisma.user.create({ data: { firebaseUid: 'user-a' } })).id;
+    otherUserId = (await prisma.user.create({ data: { firebaseUid: 'user-b' } })).id;
   });
 
   async function seed(
@@ -25,6 +32,7 @@ describe('DashboardService integration', () => {
       currentPrice?: number;
       previousPrice?: number;
       checkedAt?: Date;
+      owner?: string;
     },
   ) {
     const store = await prisma.store.create({
@@ -32,6 +40,7 @@ describe('DashboardService integration', () => {
     });
     return prisma.product.create({
       data: {
+        userId: data.owner ?? userId,
         storeId: store.id,
         name: slug,
         url: `https://${slug}.example/product`,
@@ -49,8 +58,9 @@ describe('DashboardService integration', () => {
     await seed('a', {});
     await seed('b', { status: ProductStatus.FAILED });
     await seed('c', { status: ProductStatus.PAUSED });
+    await seed('other', { owner: otherUserId });
 
-    const summary = await service.summary();
+    const summary = await service.summary(userId);
 
     expect(summary).toMatchObject({ totalProducts: 3, activeProducts: 1, failedProducts: 1 });
   });
@@ -73,7 +83,7 @@ describe('DashboardService integration', () => {
     });
     await seed('baseline', { currentPrice: 100 });
 
-    const summary = await service.summary();
+    const summary = await service.summary(userId);
 
     expect(summary.recentPriceDrops.map((drop) => drop.name)).toEqual(['drop', 'older']);
     expect(summary.recentPriceDrops[0]).toMatchObject({

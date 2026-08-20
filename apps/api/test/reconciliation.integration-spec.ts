@@ -33,27 +33,36 @@ describe('ReconciliationService integration', () => {
     jest.clearAllMocks();
     await prisma.eventLog.deleteMany();
     await prisma.product.deleteMany();
+    await prisma.watch.deleteMany();
     await prisma.store.deleteMany();
+    await prisma.user.deleteMany();
     await prisma.appSetting.deleteMany();
+    userId = (await prisma.user.create({ data: { firebaseUid: 'user-a' } })).id;
   });
+
+  let userId = '';
 
   async function seed(externalWatchId: string) {
     const store = await prisma.store.create({
       data: { hostname: `${externalWatchId}.example`, name: externalWatchId },
     });
-    return prisma.product.create({
+    const watch = await prisma.watch.create({
       data: {
         storeId: store.id,
+        normalizedUrl: `https://${externalWatchId}.example/product`,
+        externalWatchId,
+        requestedFetchMode: WatchFetchMode.AUTO,
+        fetchMode: WatchFetchMode.HTTP,
+      },
+    });
+    return prisma.product.create({
+      data: {
+        userId,
+        storeId: store.id,
+        watchId: watch.id,
         url: `https://${externalWatchId}.example/product`,
         normalizedUrl: `https://${externalWatchId}.example/product`,
         status: ProductStatus.ACTIVE,
-        watchBinding: {
-          create: {
-            externalWatchId,
-            requestedFetchMode: WatchFetchMode.AUTO,
-            fetchMode: WatchFetchMode.HTTP,
-          },
-        },
       },
     });
   }
@@ -110,11 +119,11 @@ describe('ReconciliationService integration', () => {
     const system = new SystemService(
       prisma,
       new ConfigService(),
-      { isConfigured: () => false } as unknown as TelegramGateway,
+      { hasToken: () => false } as unknown as TelegramGateway,
       changedetection,
     );
 
-    const health = await system.health();
+    const health = await system.health(userId);
 
     expect(health.lastReconciliation).toMatchObject({ checked: 1, missing: 0 });
     expect(typeof (health.lastReconciliation as { completedAt: string }).completedAt).toBe(
@@ -126,10 +135,10 @@ describe('ReconciliationService integration', () => {
     const system = new SystemService(
       prisma,
       new ConfigService(),
-      { isConfigured: () => false } as unknown as TelegramGateway,
+      { hasToken: () => false } as unknown as TelegramGateway,
       changedetection,
     );
 
-    await expect(system.health()).resolves.toMatchObject({ lastReconciliation: null });
+    await expect(system.health(userId)).resolves.toMatchObject({ lastReconciliation: null });
   });
 });

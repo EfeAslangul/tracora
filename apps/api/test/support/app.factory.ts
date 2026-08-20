@@ -2,8 +2,10 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
+import type { User } from '@prisma/client';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
+import { FirebaseAdminService } from '../../src/modules/auth/firebase-admin.service';
 import { CHANGEDETECTION_CLIENT } from '../../src/modules/changedetection/changedetection.types';
 import type { ChangeDetectionClient } from '../../src/modules/changedetection/changedetection.types';
 import { PrismaService } from '../../src/modules/database/prisma.service';
@@ -15,18 +17,31 @@ export interface ApiResponse<T = unknown> {
   body: T;
 }
 
+export interface RequestOptions {
+  body?: unknown;
+  headers?: Record<string, string>;
+  /** Hangi kullanıcı olarak istek atılacağı. `null` başlığı hiç göndermez. */
+  as?: string | null;
+}
+
 export interface TestApi {
   app: INestApplication;
   prisma: PrismaService;
   changedetection: jest.Mocked<ChangeDetectionClient>;
+  verifyIdToken: jest.Mock;
   request<T = unknown>(
     method: string,
     path: string,
-    options?: { body?: unknown; headers?: Record<string, string> },
+    options?: RequestOptions,
   ): Promise<ApiResponse<T>>;
+  /** Guard'dan bağımsız olarak yerel kullanıcı satırını hazırlar. */
+  user(uid?: string): Promise<User>;
   reset(): Promise<void>;
   close(): Promise<void>;
 }
+
+export const DEFAULT_UID = 'user-a';
+export const SECOND_UID = 'user-b';
 
 export function changeDetectionMock(): jest.Mocked<ChangeDetectionClient> {
   return {
@@ -37,6 +52,28 @@ export function changeDetectionMock(): jest.Mocked<ChangeDetectionClient> {
     getWatch: jest.fn(),
     listWatches: jest.fn(),
   };
+}
+
+/**
+ * Gerçek Firebase'e çıkılmaz; `Bearer test:<uid>` biçimindeki token doğrulanmış
+ * sayılır. Testler bu jest.fn'i yeniden programlayarak süresi geçmiş / iptal
+ * edilmiş token davranışını taklit edebilir.
+ */
+function firebaseVerifierMock(): jest.Mock {
+  return jest.fn((idToken: string) => {
+    if (!idToken.startsWith('test:')) {
+      return Promise.reject(
+        Object.assign(new Error('invalid token'), { code: 'auth/argument-error' }),
+      );
+    }
+    const uid = idToken.slice('test:'.length);
+    return Promise.resolve({
+      uid,
+      email: `${uid}@example.com`,
+      email_verified: true,
+      firebase: { sign_in_provider: 'password' },
+    });
+  });
 }
 
 /**
@@ -52,12 +89,15 @@ export async function createTestApi(): Promise<TestApi> {
   }
 
   const changedetection = changeDetectionMock();
+  const verifyIdToken = firebaseVerifierMock();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CHANGEDETECTION_CLIENT)
     .useValue(changedetection)
     // Testler dışarıya DNS/HTTP çıkmaz; URL güvenlik doğrulaması taklit edilir.
     .overrideProvider(UrlSafetyService)
     .useValue({ validateAndNormalize: (url: string) => Promise.resolve(new URL(url)) })
+    .overrideProvider(FirebaseAdminService)
+    .useValue({ verifyIdToken })
     .compile();
 
   const app = configureApp(moduleRef.createNestApplication());
@@ -73,15 +113,18 @@ export async function createTestApi(): Promise<TestApi> {
     app,
     prisma,
     changedetection,
+    verifyIdToken,
     async request<T>(
       method: string,
       path: string,
-      options: { body?: unknown; headers?: Record<string, string> } = {},
+      options: RequestOptions = {},
     ): Promise<ApiResponse<T>> {
+      const uid = options.as === undefined ? DEFAULT_UID : options.as;
       const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers: {
           ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(uid === null ? {} : { authorization: `Bearer test:${uid}` }),
           ...options.headers,
         },
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -93,11 +136,21 @@ export async function createTestApi(): Promise<TestApi> {
         body: (text ? JSON.parse(text) : null) as T,
       };
     },
+    user(uid: string = DEFAULT_UID) {
+      return prisma.user.upsert({
+        where: { firebaseUid: uid },
+        create: { firebaseUid: uid, email: `${uid}@example.com`, emailVerified: true },
+        update: {},
+      });
+    },
     async reset() {
       jest.clearAllMocks();
+      verifyIdToken.mockImplementation(firebaseVerifierMock().getMockImplementation()!);
       await prisma.eventLog.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.watch.deleteMany();
       await prisma.store.deleteMany();
+      await prisma.user.deleteMany();
       await prisma.appSetting.deleteMany();
     },
     async close() {

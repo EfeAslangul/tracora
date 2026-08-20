@@ -89,5 +89,25 @@ Her iki durumda da eşleşen bir çiftle geri yüklemeyi tekrarlayın. Ayrıntı
 
 `docker compose restart` sonrası watch'lar ve 24 saatlik schedule changedetection
 datastore volume'unda korunur; restart yeni bir kontrol tetiklemez. Onboarding kararı
-PostgreSQL'deki `AppSetting.onboarding.completedAt` alanında durduğu için wizard tekrar
-açılmaz (ADR-0004).
+PostgreSQL'deki `User.onboardingCompletedAt` alanında durduğu için wizard tekrar
+açılmaz (ADR-0004, ADR-0005). Karar kullanıcı başınadır: yeni bir hesap kendi
+onboarding'ini görür.
+
+## 6. Çok kullanıcılı modele geçiş migration'ı
+
+`20260818120000_firebase_auth_multi_tenancy` mevcut ürün verisini **siler**: tek kullanıcılı
+MVP'de açılmış ürünler bir sahibe atanamıyordu (ADR-0005).
+
+Migration changedetection.io tarafındaki watch'lara dokunmaz. Deploy sonrası bunlar
+changedetection UI'dan (Settings → watch listesi) elle silinmelidir; aksi halde ilk
+reconciliation turu hepsini `WATCH_ORPHANED` olarak raporlar ve fetcher boşuna çalışır:
+
+```bash
+curl -H "x-api-key: $CHANGEDETECTION_API_KEY" http://localhost:5050/api/v1/watch
+```
+
+Listedeki her `uuid` için:
+
+```bash
+curl -X DELETE -H "x-api-key: $CHANGEDETECTION_API_KEY" http://localhost:5050/api/v1/watch/<uuid>
+```

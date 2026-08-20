@@ -33,14 +33,19 @@ export class NotificationWorkerService implements OnModuleInit, OnModuleDestroy 
   }
 
   async run(): Promise<void> {
-    if (this.running || !this.telegram.isConfigured()) return;
+    if (this.running || !this.telegram.hasToken()) return;
     this.running = true;
     return runWithContext({ requestId: randomUUID(), source: 'notification-worker' }, async () => {
       try {
         const deliveries = await this.claim();
         for (const delivery of deliveries) {
+          const chatId = delivery.product.user.telegramChatId;
+          if (!chatId) {
+            await this.abandon(delivery.id, delivery.attempts);
+            continue;
+          }
           try {
-            await this.telegram.send(delivery.type, delivery.payload);
+            await this.telegram.send(chatId, delivery.type, delivery.payload);
             await this.prisma.notificationDelivery.update({
               where: { id: delivery.id },
               data: {
@@ -82,8 +87,30 @@ export class NotificationWorkerService implements OnModuleInit, OnModuleDestroy 
         where: { id: { in: ids } },
         data: { status: NotificationStatus.PROCESSING, lockedAt: new Date() },
       });
-      return tx.notificationDelivery.findMany({ where: { id: { in: ids } } });
+      return tx.notificationDelivery.findMany({
+        where: { id: { in: ids } },
+        include: { product: { select: { user: { select: { telegramChatId: true } } } } },
+      });
     });
+  }
+
+  /**
+   * Sahibi Telegram sohbetini bağlamamış: yeniden denemek durumu değiştirmez,
+   * kayıt kalıcı başarısız olarak kapatılır ve outbox'ta görünür kalır.
+   */
+  private async abandon(deliveryId: string, previousAttempts: number): Promise<void> {
+    await this.prisma.notificationDelivery.update({
+      where: { id: deliveryId },
+      data: {
+        status: NotificationStatus.FAILED,
+        attempts: previousAttempts + 1,
+        lockedAt: null,
+        nextAttemptAt: null,
+        lastErrorCode: 'TELEGRAM_CHAT_NOT_CONFIGURED',
+        lastErrorMessage: 'Kullanıcı için Telegram sohbeti tanımlı değil.',
+      },
+    });
+    logJson(this.logger, 'warn', 'telegram_chat_not_configured', { deliveryId });
   }
 
   private async fail(deliveryId: string, previousAttempts: number, error: unknown): Promise<void> {

@@ -7,7 +7,6 @@ const config = () =>
   new ConfigService({
     TELEGRAM_ENABLED: true,
     TELEGRAM_BOT_TOKEN: 'test-token',
-    TELEGRAM_CHAT_ID: 'test-chat',
     TELEGRAM_TIMEOUT_MS: 1_000,
   });
 
@@ -23,7 +22,7 @@ describe('TelegramGateway', () => {
     );
     const gateway = new TelegramGateway(config());
 
-    await gateway.send(NotificationType.PRICE_CHANGED, {
+    await gateway.send('4242', NotificationType.PRICE_CHANGED, {
       productName: '<Example>',
       productUrl: 'https://example.com?a=1&b=2',
       previousPrice: 20,
@@ -47,7 +46,7 @@ describe('TelegramGateway', () => {
     const gateway = new TelegramGateway(config());
 
     await expect(
-      gateway.send(NotificationType.RESTOCKED, {
+      gateway.send('4242', NotificationType.RESTOCKED, {
         productName: 'Example',
         productUrl: 'https://example.com',
       }),

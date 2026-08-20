@@ -23,25 +23,30 @@ describe('HTTP API integration', () => {
     api.changedetection.updateWatch.mockResolvedValue();
   });
 
-  async function seedProduct(status: ProductStatus, withBinding = true) {
+  async function seedProduct(status: ProductStatus, withWatch = true) {
     const store = await api.prisma.store.create({
       data: { hostname: 'seed.example', name: 'seed.example' },
     });
+    const user = await api.user();
+    const watch = withWatch
+      ? await api.prisma.watch.create({
+          data: {
+            storeId: store.id,
+            normalizedUrl: 'https://seed.example/product',
+            externalWatchId: 'watch-seed',
+            requestedFetchMode: WatchFetchMode.AUTO,
+            fetchMode: WatchFetchMode.HTTP,
+          },
+        })
+      : null;
     return api.prisma.product.create({
       data: {
+        userId: user.id,
         storeId: store.id,
+        watchId: watch?.id,
         url: 'https://seed.example/product',
         normalizedUrl: 'https://seed.example/product',
         status,
-        watchBinding: withBinding
-          ? {
-              create: {
-                externalWatchId: 'watch-seed',
-                requestedFetchMode: WatchFetchMode.AUTO,
-                fetchMode: WatchFetchMode.HTTP,
-              },
-            }
-          : undefined,
       },
     });
   }
@@ -76,6 +81,31 @@ describe('HTTP API integration', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.code).toBe('INVALID_REQUEST');
+    });
+  });
+
+  describe('authentication', () => {
+    it('rejects a request without a bearer token', async () => {
+      const response = await api.request<ErrorBody>('GET', '/products', { as: null });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('UNAUTHENTICATED');
+    });
+
+    it('rejects a token the verifier does not accept', async () => {
+      const response = await api.request<ErrorBody>('GET', '/products', {
+        as: null,
+        headers: { authorization: 'Bearer not-a-test-token' },
+      });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('UNAUTHENTICATED');
+    });
+
+    it('keeps the health endpoint public', async () => {
+      const response = await api.request('GET', '/health', { as: null });
+
+      expect(response.status).toBe(200);
     });
   });
 
