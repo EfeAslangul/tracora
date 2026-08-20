@@ -1,8 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { DashboardService } from './dashboard.service';
 
 @ApiTags('dashboard')
+@ApiBearerAuth()
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
@@ -32,7 +35,7 @@ export class DashboardController {
       },
     },
   })
-  summary() {
-    return this.dashboardService.summary();
+  summary(@CurrentUser() user: AuthenticatedUser) {
+    return this.dashboardService.summary(user.id);
   }
 }

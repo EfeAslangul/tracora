@@ -29,8 +29,26 @@ export const environmentValidationSchema = Joi.object({
   URL_VALIDATION_TIMEOUT_MS: Joi.number().integer().min(1_000).max(30_000).default(5_000),
   TELEGRAM_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TELEGRAM_BOT_TOKEN: Joi.string().allow('').optional(),
-  TELEGRAM_CHAT_ID: Joi.string().allow('').optional(),
   TELEGRAM_TIMEOUT_MS: Joi.number().integer().min(1_000).max(60_000).default(10_000),
+  // Webhook secret'ıyla aynı kalıp: üretimde zorunlu, geliştirmede boş
+  // bırakılabilir. Boşken uygulama açılır ama korumalı uçlar
+  // AUTH_NOT_CONFIGURED/503 döner; sessizce korumasız kalmaz.
+  FIREBASE_PROJECT_ID: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  FIREBASE_CLIENT_EMAIL: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().email().required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  FIREBASE_PRIVATE_KEY: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().min(64).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  AUTH_REQUIRE_EMAIL_VERIFIED: Joi.boolean().truthy('true').falsy('false').default(false),
   APP_BASE_URL: Joi.string()
     .uri({ scheme: ['http', 'https'] })
     .required(),

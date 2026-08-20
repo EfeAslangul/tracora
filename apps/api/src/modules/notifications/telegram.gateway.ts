@@ -23,22 +23,24 @@ interface TelegramApiResponse {
 export class TelegramGateway {
   private readonly enabled: boolean;
   private readonly token: string;
-  private readonly chatId: string;
   private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.enabled = this.configService.get<boolean>('TELEGRAM_ENABLED', true);
     this.token = this.configService.get<string>('TELEGRAM_BOT_TOKEN', '').trim();
-    this.chatId = this.configService.get<string>('TELEGRAM_CHAT_ID', '').trim();
     this.timeoutMs = this.configService.get<number>('TELEGRAM_TIMEOUT_MS', 10_000);
   }
 
-  isConfigured(): boolean {
-    return this.enabled && Boolean(this.token) && Boolean(this.chatId);
+  /**
+   * Bot token'ı sunucu genelindedir; hedef sohbet kullanıcı başınadır
+   * (`User.telegramChatId`) ve gönderim anında verilir.
+   */
+  hasToken(): boolean {
+    return this.enabled && Boolean(this.token);
   }
 
-  async send(type: NotificationType, rawPayload: Prisma.JsonValue): Promise<void> {
-    if (!this.isConfigured()) {
+  async send(chatId: string, type: NotificationType, rawPayload: Prisma.JsonValue): Promise<void> {
+    if (!this.hasToken() || !chatId) {
       throw new TelegramDeliveryError(
         'TELEGRAM_NOT_CONFIGURED',
         'Telegram yapılandırılmamış.',
@@ -54,7 +56,7 @@ export class TelegramGateway {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          chat_id: this.chatId,
+          chat_id: chatId,
           text: this.message(type, payload),
           parse_mode: 'HTML',
           disable_web_page_preview: true,

@@ -5,7 +5,7 @@ import type {
   Product,
   StockSnapshot,
   Store,
-  WatchBinding,
+  Watch,
   WatchFetchMode,
 } from '@prisma/client';
 
@@ -88,11 +88,11 @@ export const presentProductDetail = (
   priceSnapshots: PriceSnapshot[],
   stockSnapshots: StockSnapshot[],
   events: EventLog[],
-  binding: WatchBinding | null,
+  watch: Watch | null,
 ): ProductDetail => ({
   ...presentProduct(product),
-  watchId: binding?.externalWatchId ?? null,
-  fetchMode: binding?.fetchMode ?? null,
+  watchId: watch?.externalWatchId ?? null,
+  fetchMode: watch?.fetchMode ?? null,
   priceHistory: priceSnapshots
     .map((snapshot) => ({
       price: snapshot.price.toNumber(),

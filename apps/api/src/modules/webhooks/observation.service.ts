@@ -15,18 +15,30 @@ interface NotificationPayload extends Prisma.JsonObject {
   inStock?: boolean;
 }
 
-type ProductWithStore = Prisma.ProductGetPayload<{ include: { store: true } }>;
+export interface ObservationResult {
+  processed: number;
+  duplicates: number;
+}
+
+type ProductWithOwner = Prisma.ProductGetPayload<{
+  include: { store: true; user: { select: { telegramChatId: true } } };
+}>;
 
 @Injectable()
 export class ObservationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async process(observation: ProductObservation): Promise<{ duplicate: boolean }> {
-    const binding = await this.prisma.watchBinding.findUnique({
+  /**
+   * Bir watch birden çok kullanıcının ürününe bağlı olabilir; tek gözlem
+   * hepsine uygulanır. Tekillik ürün başına (`productId + sourceEventKey`)
+   * olduğu için aynı webhook'un yeniden teslimi yine idempotenttir.
+   */
+  async process(observation: ProductObservation): Promise<ObservationResult> {
+    const watch = await this.prisma.watch.findUnique({
       where: { externalWatchId: observation.watchId },
-      include: { product: { include: { store: true } } },
+      select: { id: true },
     });
-    if (!binding) {
+    if (!watch) {
       throw new DomainException(
         'WATCH_NOT_FOUND',
         'Webhook için ürün eşleşmesi bulunamadı.',
@@ -34,127 +46,167 @@ export class ObservationService {
       );
     }
 
+    const nextPrice = new Prisma.Decimal(observation.price);
+    if (nextPrice.isNegative()) {
+      throw new DomainException(
+        'INVALID_WEBHOOK_PAYLOAD',
+        'Fiyat negatif olamaz.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const sourceEventKey = this.eventKey(observation);
     return this.prisma.$transaction(async (tx) => {
-      const [priceEvent, stockEvent] = await Promise.all([
-        tx.priceSnapshot.findUnique({ where: { sourceEventKey }, select: { id: true } }),
-        tx.stockSnapshot.findUnique({ where: { sourceEventKey }, select: { id: true } }),
-      ]);
-      if (priceEvent || stockEvent) return { duplicate: true };
-
-      const product = await tx.product.findUnique({
-        where: { id: binding.productId },
-        include: { store: true },
+      const products = await tx.product.findMany({
+        where: { watchId: watch.id },
+        include: { store: true, user: { select: { telegramChatId: true } } },
       });
-      if (!product) {
-        throw new DomainException('PRODUCT_NOT_FOUND', 'Ürün bulunamadı.', HttpStatus.NOT_FOUND);
-      }
 
-      const nextPrice = new Prisma.Decimal(observation.price);
-      if (nextPrice.isNegative()) {
-        throw new DomainException(
-          'INVALID_WEBHOOK_PAYLOAD',
-          'Fiyat negatif olamaz.',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      if (product.currency && product.currency !== observation.currency) {
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            status: ProductStatus.FAILED,
-            lastCheckedAt: observation.observedAt,
-            lastErrorCode: 'CURRENCY_CHANGED',
-            lastErrorMessage: 'Ürünün para birimi beklenmedik biçimde değişti.',
-          },
-        });
+      // Sahibi kalmamış watch: 404 dönmek changedetection'ı sonsuz yeniden
+      // denemeye sokar. Olay kaydedilir, reconciliation watch'ı temizler.
+      if (products.length === 0) {
         await tx.eventLog.create({
           data: {
-            productId: product.id,
-            type: 'EXTRACTION_ERROR',
-            code: 'CURRENCY_CHANGED',
-            message: 'Webhook para birimi mevcut ürün para birimiyle eşleşmedi.',
-            metadata: { expected: product.currency, received: observation.currency },
+            type: 'ORPHANED_WATCH',
+            code: 'ORPHANED_WATCH',
+            message: 'Webhook artık hiçbir ürüne bağlı olmayan bir watch için geldi.',
+            metadata: { externalWatchId: observation.watchId },
           },
         });
-        return { duplicate: false };
+        return { processed: 0, duplicates: 0 };
       }
 
-      const isBaseline = product.currentPrice === null;
-      const priceChanged = isBaseline || !product.currentPrice?.equals(nextPrice);
-      const stockChanged = observation.inStock !== null && product.inStock !== observation.inStock;
-      if (!priceChanged && !stockChanged) {
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            lastCheckedAt: observation.observedAt,
-            lastSuccessfulCheckAt: observation.observedAt,
-            lastErrorCode: null,
-            lastErrorMessage: null,
-          },
-        });
-        return { duplicate: false };
+      let processed = 0;
+      let duplicates = 0;
+      for (const product of products) {
+        const applied = await this.applyObservation(
+          tx,
+          product,
+          observation,
+          nextPrice,
+          sourceEventKey,
+        );
+        if (applied) processed += 1;
+        else duplicates += 1;
       }
+      return { processed, duplicates };
+    });
+  }
 
-      if (priceChanged) {
-        await tx.priceSnapshot.create({
-          data: {
-            productId: product.id,
-            price: nextPrice,
-            currency: observation.currency,
-            observedAt: observation.observedAt,
-            sourceEventKey,
-          },
-        });
-      }
-      if (stockChanged && observation.inStock !== null) {
-        await tx.stockSnapshot.create({
-          data: {
-            productId: product.id,
-            inStock: observation.inStock,
-            observedAt: observation.observedAt,
-            sourceEventKey,
-          },
-        });
-      }
+  private async applyObservation(
+    tx: Prisma.TransactionClient,
+    product: ProductWithOwner,
+    observation: ProductObservation,
+    nextPrice: Prisma.Decimal,
+    sourceEventKey: string,
+  ): Promise<boolean> {
+    const key = { productId_sourceEventKey: { productId: product.id, sourceEventKey } };
+    const [priceEvent, stockEvent] = await Promise.all([
+      tx.priceSnapshot.findUnique({ where: key, select: { id: true } }),
+      tx.stockSnapshot.findUnique({ where: key, select: { id: true } }),
+    ]);
+    if (priceEvent || stockEvent) return false;
 
+    if (product.currency && product.currency !== observation.currency) {
       await tx.product.update({
         where: { id: product.id },
         data: {
-          // Duraklatılmış ürün, yolda olan bir webhook ile ACTIVE'e dönmemeli.
-          status: product.status === ProductStatus.PAUSED ? undefined : ProductStatus.ACTIVE,
-          previousPrice:
-            priceChanged && product.currentPrice !== null ? product.currentPrice : undefined,
-          currentPrice: priceChanged ? nextPrice : undefined,
-          currency: observation.currency,
-          inStock: observation.inStock ?? undefined,
+          status: ProductStatus.FAILED,
+          lastCheckedAt: observation.observedAt,
+          lastErrorCode: 'CURRENCY_CHANGED',
+          lastErrorMessage: 'Ürünün para birimi beklenmedik biçimde değişti.',
+        },
+      });
+      await tx.eventLog.create({
+        data: {
+          productId: product.id,
+          type: 'EXTRACTION_ERROR',
+          code: 'CURRENCY_CHANGED',
+          message: 'Webhook para birimi mevcut ürün para birimiyle eşleşmedi.',
+          metadata: { expected: product.currency, received: observation.currency },
+        },
+      });
+      return true;
+    }
+
+    const isBaseline = product.currentPrice === null;
+    const priceChanged = isBaseline || !product.currentPrice?.equals(nextPrice);
+    const stockChanged = observation.inStock !== null && product.inStock !== observation.inStock;
+    if (!priceChanged && !stockChanged) {
+      await tx.product.update({
+        where: { id: product.id },
+        data: {
           lastCheckedAt: observation.observedAt,
           lastSuccessfulCheckAt: observation.observedAt,
           lastErrorCode: null,
           lastErrorMessage: null,
         },
       });
+      return true;
+    }
 
-      if (product.notificationsEnabled && !isBaseline) {
-        const deliveries = this.deliveries(
-          product,
-          observation,
-          nextPrice,
-          priceChanged,
-          stockChanged,
+    if (priceChanged) {
+      await tx.priceSnapshot.create({
+        data: {
+          productId: product.id,
+          price: nextPrice,
+          currency: observation.currency,
+          observedAt: observation.observedAt,
           sourceEventKey,
-        );
-        if (deliveries.length > 0) {
-          await tx.notificationDelivery.createMany({ data: deliveries, skipDuplicates: true });
-        }
-      }
+        },
+      });
+    }
+    if (stockChanged && observation.inStock !== null) {
+      await tx.stockSnapshot.create({
+        data: {
+          productId: product.id,
+          inStock: observation.inStock,
+          observedAt: observation.observedAt,
+          sourceEventKey,
+        },
+      });
+    }
 
-      return { duplicate: false };
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        // Duraklatılmış ürün, yolda olan bir webhook ile ACTIVE'e dönmemeli.
+        status: product.status === ProductStatus.PAUSED ? undefined : ProductStatus.ACTIVE,
+        previousPrice:
+          priceChanged && product.currentPrice !== null ? product.currentPrice : undefined,
+        currentPrice: priceChanged ? nextPrice : undefined,
+        currency: observation.currency,
+        inStock: observation.inStock ?? undefined,
+        lastCheckedAt: observation.observedAt,
+        lastSuccessfulCheckAt: observation.observedAt,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+      },
     });
+
+    // Chat id'si olmayan kullanıcı için kalıcı olarak başarısız olacak bir
+    // outbox satırı üretmenin anlamı yok.
+    const deliverable =
+      product.notificationsEnabled && !isBaseline && product.user.telegramChatId !== null;
+    if (deliverable) {
+      const deliveries = this.deliveries(
+        product,
+        observation,
+        nextPrice,
+        priceChanged,
+        stockChanged,
+        sourceEventKey,
+      );
+      if (deliveries.length > 0) {
+        await tx.notificationDelivery.createMany({ data: deliveries, skipDuplicates: true });
+      }
+    }
+
+    return true;
   }
 
   private deliveries(
-    product: ProductWithStore,
+    product: ProductWithOwner,
     observation: ProductObservation,
     nextPrice: Prisma.Decimal,
     priceChanged: boolean,

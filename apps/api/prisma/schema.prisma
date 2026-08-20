@@ -44,6 +44,23 @@ enum NotificationStatus {
   FAILED
 }
 
+/// Firebase Auth kullanıcısının yerel izdüşümü. Tekillik firebaseUid'de:
+/// aynı e-posta Firebase'de farklı provider'larla ayrı UID alabilir.
+model User {
+  id                    String    @id @default(uuid()) @db.Uuid
+  firebaseUid           String    @unique @db.VarChar(128)
+  email                 String?   @db.VarChar(320)
+  emailVerified         Boolean   @default(false)
+  displayName           String?   @db.VarChar(200)
+  signInProvider        String?   @db.VarChar(50)
+  telegramChatId        String?   @db.VarChar(64)
+  onboardingCompletedAt DateTime? @db.Timestamptz(3)
+  lastSeenAt            DateTime? @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  products              Product[]
+}
+
 model Store {
   id             String             @id @default(uuid()) @db.Uuid
   hostname       String             @unique @db.VarChar(253)
@@ -55,11 +72,14 @@ model Store {
   createdAt      DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
   products       Product[]
+  watches        Watch[]
 }
 
 model Product {
   id                    String              @id @default(uuid()) @db.Uuid
+  userId                String              @db.Uuid
   storeId               String              @db.Uuid
+  watchId               String?             @db.Uuid
   name                  String?             @db.VarChar(500)
   url                   String
   normalizedUrl         String
@@ -77,28 +97,42 @@ model Product {
   lastErrorMessage      String?
   createdAt             DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   store                 Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  watchBinding          WatchBinding?
+  watch                 Watch?               @relation(fields: [watchId], references: [id], onDelete: SetNull)
   priceSnapshots        PriceSnapshot[]
   stockSnapshots        StockSnapshot[]
   events                EventLog[]
   notificationDeliveries NotificationDelivery[]
 
-  @@unique([storeId, normalizedUrl])
+  @@unique([userId, storeId, normalizedUrl])
   @@index([status, lastSuccessfulCheckAt])
   @@index([updatedAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([watchId])
 }
 
-model WatchBinding {
+/// changedetection.io watch'ı ürünün değil URL'nin varlığıdır: aynı normalize
+/// URL'yi izleyen tüm kullanıcıların ürünleri tek watch'a bağlanır ve gelen
+/// webhook hepsine fan-out edilir.
+model Watch {
   id                 String         @id @default(uuid()) @db.Uuid
-  productId          String         @unique @db.Uuid
+  storeId            String         @db.Uuid
+  normalizedUrl      String
   externalWatchId    String         @unique @db.VarChar(100)
   requestedFetchMode WatchFetchMode @default(AUTO)
   fetchMode          WatchFetchMode
+  // Baseline senkronunun son turu; manuel kontrol cooldown'u ile karışmaması
+  // için ayrı tutulur.
   lastSyncAt         DateTime?      @db.Timestamptz(3)
+  lastTriggeredAt    DateTime?      @db.Timestamptz(3)
+  paused             Boolean        @default(false)
   createdAt          DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
-  product            Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store              Store          @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  products           Product[]
+
+  @@unique([storeId, normalizedUrl])
 }
 
 model PriceSnapshot {
@@ -107,10 +141,11 @@ model PriceSnapshot {
   price          Decimal  @db.Decimal(18, 4)
   currency       String   @db.VarChar(3)
   observedAt     DateTime @db.Timestamptz(3)
-  sourceEventKey String   @unique @db.VarChar(128)
+  sourceEventKey String   @db.VarChar(128)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  @@unique([productId, sourceEventKey])
   @@index([productId, observedAt(sort: Desc)])
 }
 
@@ -120,10 +155,11 @@ model StockSnapshot {
   inStock        Boolean
   availableSizes Json?
   observedAt     DateTime @db.Timestamptz(3)
-  sourceEventKey String   @unique @db.VarChar(128)
+  sourceEventKey String   @db.VarChar(128)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  @@unique([productId, sourceEventKey])
   @@index([productId, observedAt(sort: Desc)])
 }
 
@@ -165,7 +201,7 @@ model NotificationDelivery {
   updatedAt        DateTime             @updatedAt @db.Timestamptz(3)
   product          Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@unique([sourceEventKey, channel, type])
+  @@unique([productId, sourceEventKey, channel, type])
   @@index([status, nextAttemptAt])
   @@index([lockedAt])
 }

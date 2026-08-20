@@ -14,7 +14,7 @@ describe('Telegram outbox recovery integration', () => {
 
   const prisma = new PrismaService();
   const send = jest.fn();
-  const telegram = { isConfigured: () => true, send } as unknown as TelegramGateway;
+  const telegram = { hasToken: () => true, send } as unknown as TelegramGateway;
   const worker = new NotificationWorkerService(prisma, new ConfigService(), telegram);
   const observations = new ObservationService(prisma);
 
@@ -23,29 +23,36 @@ describe('Telegram outbox recovery integration', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     await prisma.product.deleteMany();
+    await prisma.watch.deleteMany();
     await prisma.store.deleteMany();
+    await prisma.user.deleteMany();
   });
 
-  async function productWithTarget(targetPrice: number) {
+  async function productWithTarget(targetPrice: number, telegramChatId: string | null = '4242') {
     const store = await prisma.store.create({
       data: { hostname: 'shop.example', name: 'shop.example' },
     });
-    return prisma.product.create({
+    const watch = await prisma.watch.create({
       data: {
         storeId: store.id,
+        normalizedUrl: 'https://shop.example/product',
+        externalWatchId: 'watch-1',
+        requestedFetchMode: WatchFetchMode.AUTO,
+        fetchMode: WatchFetchMode.HTTP,
+      },
+    });
+    const user = await prisma.user.create({ data: { firebaseUid: 'user-a', telegramChatId } });
+    return prisma.product.create({
+      data: {
+        userId: user.id,
+        storeId: store.id,
+        watchId: watch.id,
         url: 'https://shop.example/product',
         normalizedUrl: 'https://shop.example/product',
         status: ProductStatus.ACTIVE,
         currentPrice: 200,
         currency: 'TRY',
         targetPrice,
-        watchBinding: {
-          create: {
-            externalWatchId: 'watch-1',
-            requestedFetchMode: WatchFetchMode.AUTO,
-            fetchMode: WatchFetchMode.HTTP,
-          },
-        },
       },
     });
   }
@@ -147,14 +154,40 @@ describe('Telegram outbox recovery integration', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it('does not run when telegram is not configured', async () => {
+  it('does not run when the bot token is missing', async () => {
     const idle = new NotificationWorkerService(prisma, new ConfigService(), {
-      isConfigured: () => false,
+      hasToken: () => false,
       send,
     } as unknown as TelegramGateway);
 
     await idle.run();
 
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('closes a delivery permanently when the owner has no telegram chat', async () => {
+    await productWithTarget(100, null);
+    await observePriceDrop('drop-5', '90.00');
+    // Sahibin chat id'si yokken ObservationService satır açmaz; kullanıcının
+    // sohbeti sonradan silinmiş bir kayıt için worker'ın davranışı ölçülür.
+    const product = await prisma.product.findFirstOrThrow();
+    await prisma.notificationDelivery.create({
+      data: {
+        productId: product.id,
+        sourceEventKey: 'manual-1',
+        type: 'PRICE_CHANGED',
+        payload: { productName: 'Example', productUrl: 'https://shop.example/product' },
+      },
+    });
+
+    await worker.run();
+
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow();
+    expect(delivery).toMatchObject({
+      status: NotificationStatus.FAILED,
+      lastErrorCode: 'TELEGRAM_CHAT_NOT_CONFIGURED',
+    });
+    expect(delivery.nextAttemptAt).toBeNull();
     expect(send).not.toHaveBeenCalled();
   });
 });

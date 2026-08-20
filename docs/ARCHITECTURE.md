@@ -19,7 +19,10 @@
 flowchart TB
     User[Kullanıcı]
     Web[React]
+    IOS[iOS SwiftUI]
+    Firebase[Firebase Auth]
     API[NestJS]
+    Guard[FirebaseAuthGuard]
     DB[(PostgreSQL)]
     CD[changedetection.io]
     Browser[Browser Fetcher]
@@ -29,7 +32,13 @@ flowchart TB
     Outbox[(Notification Outbox)]
 
     User --> Web
-    Web --> API
+    User --> IOS
+    Web -- ID token --> Firebase
+    IOS -- ID token --> Firebase
+    Web --> Guard
+    IOS --> Guard
+    Guard -- verifyIdToken --> Firebase
+    Guard --> API
     API --> DB
     API --> CD
     CD --> Browser
@@ -39,6 +48,23 @@ flowchart TB
     Webhook --> Outbox
     Outbox --> Telegram
 ```
+
+Webhook uç noktası guard'ın dışındadır: changedetection.io kullanıcı oturumu taşıyamaz,
+kimliğini `x-webhook-secret` ile doğrular.
+
+### 2.1 Kiracılık ve paylaşılan watch
+
+Veri kullanıcı bazında ayrıktır (`Product.userId`); başkasının ürünü `404` görünür. Buna
+karşılık changedetection.io watch'ı **URL başınadır**: aynı normalize URL'yi izleyen tüm
+kullanıcıların ürünleri tek watch'a bağlanır ve gelen gözlem hepsine fan-out edilir
+(ADR-0005).
+
+Paylaşımın kabul edilen sonuçları:
+
+- Watch hata verirse aynı watch'a bağlı tüm kullanıcıların ürünleri etkilenir.
+- Manuel kontrol soğuma penceresi watch başınadır; ikinci kullanıcı
+  `CHECK_ALREADY_RUNNING` alabilir. Pencerenin amacı upstream fetcher'ı korumaktır.
+- Uzak watch ancak tüm sahipleri duraklattığında durur, ancak son sahip ayrıldığında silinir.
 
 ## 3. Neden NestJS?
 
@@ -186,22 +212,26 @@ Pinned changedetection.io sürümü ilk snapshot için notification üretmediği
 
 Günlük cron (`@Cron`, varsayılan 03:00; `RECONCILIATION_ENABLED` ile kapatılabilir):
 
-1. WatchBinding kayıtlarını oku.
+1. Watch kayıtlarını (ve bağlı ürünlerini) oku.
 2. changedetection.io watch listesini al.
 3. Eksik/fazla watch tespit et.
 4. EventLog yaz.
 5. Otomatik düzeltme yerine ilk sürümde raporla.
 6. Schedule'ın 24 saat olduğunu doğrula; sapmayı raporla.
 
+Bulgular watch başına sayılır ama o watch'a bağlı **her ürüne** ayrı `EventLog` satırı
+yazılır; her sahip kendi ürün geçmişinde görebilsin diye.
+
 Tüm satırlar `EventLog.type = RECONCILIATION` ile yazılır, `code` ayrımı yapar:
 
-| code                   | Anlamı                                              |
-| ---------------------- | --------------------------------------------------- |
-| `WATCH_MISSING`        | Binding var, changedetection.io tarafında watch yok |
-| `WATCH_ORPHANED`       | changedetection.io tarafında watch var, binding yok |
-| `SCHEDULE_DRIFT`       | Watch beklenen aralıkta kontrol edilmemiş           |
-| `WATCH_ERROR_REPORTED` | ACTIVE ürünün watch'ı hata bildiriyor               |
-| `COMPLETED`            | Tur özeti (sayaçlar `metadata` içinde)              |
+| code                   | Anlamı                                            |
+| ---------------------- | ------------------------------------------------- |
+| `WATCH_MISSING`        | Yerel watch var, changedetection.io tarafında yok |
+| `WATCH_ORPHANED`       | changedetection.io tarafında watch var, yerel yok |
+| `WATCH_UNOWNED`        | Yerel watch var ama hiçbir ürüne bağlı değil      |
+| `SCHEDULE_DRIFT`       | Watch beklenen aralıkta kontrol edilmemiş         |
+| `WATCH_ERROR_REPORTED` | ACTIVE ürünün watch'ı hata bildiriyor             |
+| `COMPLETED`            | Tur özeti (sayaçlar `metadata` içinde)            |
 
 Sonuç ayrıca `AppSetting` içindeki `reconciliation.lastCompletedAt` anahtarına yazılır ve
 `GET /system/health` üzerinden `lastReconciliation` olarak sunulur.

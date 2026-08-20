@@ -1,9 +1,12 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { SetupDto } from './dto/setup.dto';
 import { SettingsService } from './settings.service';
 
 @ApiTags('setup')
+@ApiBearerAuth()
 @Controller('setup')
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
@@ -20,8 +23,8 @@ export class SettingsController {
       },
     },
   })
-  status() {
-    return this.settingsService.status();
+  status(@CurrentUser() user: AuthenticatedUser) {
+    return this.settingsService.status(user);
   }
 
   @Post()
@@ -42,7 +45,7 @@ export class SettingsController {
       },
     },
   })
-  setup(@Body() input: SetupDto) {
-    return this.settingsService.setup(input);
+  setup(@CurrentUser() user: AuthenticatedUser, @Body() input: SetupDto) {
+    return this.settingsService.setup(user, input);
   }
 }

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { Prisma, ProductStatus, StoreProfileStatus } from '@prisma/client';
+import { Prisma, ProductStatus, StoreProfileStatus, WatchFetchMode } from '@prisma/client';
 import { ChangeDetectionClientError } from '../changedetection/changedetection.errors';
 import type { ChangeDetectionClient } from '../changedetection/changedetection.types';
 import type { ChangedetectionWatchConfigService } from '../changedetection/changedetection-watch-config.service';
@@ -9,6 +9,7 @@ import type { UrlSafetyService } from '../sites/url-safety.service';
 import { ProductsService } from './products.service';
 
 const now = new Date('2026-08-10T12:00:00Z');
+const USER_ID = 'user-1';
 const store = {
   id: 'store-1',
   hostname: 'shop.example',
@@ -20,9 +21,24 @@ const store = {
   createdAt: now,
   updatedAt: now,
 };
+const watchRow = {
+  id: 'watch-row-1',
+  storeId: store.id,
+  normalizedUrl: 'https://shop.example/product',
+  externalWatchId: 'watch-1',
+  requestedFetchMode: WatchFetchMode.AUTO,
+  fetchMode: WatchFetchMode.HTTP,
+  lastSyncAt: null,
+  lastTriggeredAt: null,
+  paused: false,
+  createdAt: now,
+  updatedAt: now,
+};
 const pendingProduct = {
   id: 'product-1',
+  userId: USER_ID,
   storeId: store.id,
+  watchId: null as string | null,
   name: null,
   url: 'https://shop.example/product',
   normalizedUrl: 'https://shop.example/product',
@@ -42,6 +58,16 @@ const pendingProduct = {
   updatedAt: now,
 };
 
+/** productOrFail'in döndürdüğü, watch'ı yüklü ürün. */
+const boundProduct = (overrides: Record<string, unknown> = {}) => ({
+  ...pendingProduct,
+  status: ProductStatus.ACTIVE,
+  store,
+  watchId: watchRow.id,
+  watch: watchRow,
+  ...overrides,
+});
+
 describe('ProductsService', () => {
   const prisma = {
     store: { upsert: jest.fn() },
@@ -49,17 +75,20 @@ describe('ProductsService', () => {
       create: jest.fn(),
       update: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      count: jest.fn(),
       delete: jest.fn(),
     },
     $transaction: jest.fn(),
     priceSnapshot: { findMany: jest.fn() },
     stockSnapshot: { findMany: jest.fn() },
     eventLog: { findMany: jest.fn() },
-    watchBinding: {
+    watch: {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
   };
   const urlSafety = { validateAndNormalize: jest.fn() };
@@ -97,27 +126,35 @@ describe('ProductsService', () => {
     watchConfig.createInput.mockReturnValue({ url: pendingProduct.url, fetchMode: 'HTTP' });
     prisma.store.upsert.mockResolvedValue(store);
     prisma.product.create.mockResolvedValue(pendingProduct);
-    prisma.watchBinding.findUnique.mockResolvedValue(null);
-    prisma.watchBinding.create.mockResolvedValue({ id: 'binding-1' });
+    prisma.product.count.mockResolvedValue(0);
+    prisma.watch.findUnique.mockResolvedValue(null);
+    prisma.watch.create.mockResolvedValue(watchRow);
+    prisma.watch.update.mockResolvedValue(watchRow);
     prisma.product.update.mockResolvedValue({
       ...pendingProduct,
       status: ProductStatus.ACTIVE,
       store,
     });
+    // remove() etkileşimli transaction kullanır; diğerleri dizi biçimini.
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => Promise<unknown>)(prisma)
+        : Promise.resolve(arg),
+    );
     changedetection.createWatch.mockResolvedValue({ id: 'watch-1' });
     changedetection.triggerCheck.mockResolvedValue();
     changedetection.deleteWatch.mockResolvedValue();
   });
 
-  it('persists the binding before triggering the initial check', async () => {
+  it('persists the watch before triggering the initial check', async () => {
     await expect(
-      service.create({ url: pendingProduct.url, notificationsEnabled: true }),
+      service.create(USER_ID, { url: pendingProduct.url, notificationsEnabled: true }),
     ).resolves.toMatchObject({ id: pendingProduct.id, status: ProductStatus.ACTIVE });
 
     expect(changedetection.createWatch).toHaveBeenCalledWith(
       expect.objectContaining({ fetchMode: 'HTTP' }),
     );
-    expect(prisma.watchBinding.create).toHaveBeenCalledWith(
+    expect(prisma.watch.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           externalWatchId: 'watch-1',
@@ -126,16 +163,29 @@ describe('ProductsService', () => {
         }),
       }),
     );
-    expect(prisma.watchBinding.create.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(prisma.watch.create.mock.invocationCallOrder[0]).toBeLessThan(
       changedetection.triggerCheck.mock.invocationCallOrder[0] ?? Infinity,
     );
   });
 
-  it('deletes an external watch when binding persistence fails', async () => {
-    prisma.watchBinding.create.mockRejectedValueOnce(new Error('database unavailable'));
+  it('reuses the watch another user already created for the same url', async () => {
+    prisma.watch.findUnique.mockResolvedValue(watchRow);
 
     await expect(
-      service.create({ url: pendingProduct.url, notificationsEnabled: true }),
+      service.create(USER_ID, { url: pendingProduct.url, notificationsEnabled: true }),
+    ).resolves.toMatchObject({ status: ProductStatus.ACTIVE });
+
+    expect(changedetection.createWatch).not.toHaveBeenCalled();
+    expect(prisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ watchId: watchRow.id }) }),
+    );
+  });
+
+  it('deletes an external watch when watch persistence fails', async () => {
+    prisma.watch.create.mockRejectedValueOnce(new Error('database unavailable'));
+
+    await expect(
+      service.create(USER_ID, { url: pendingProduct.url, notificationsEnabled: true }),
     ).rejects.toMatchObject({ code: 'WATCH_CREATE_FAILED' });
 
     expect(changedetection.deleteWatch).toHaveBeenCalledWith('watch-1');
@@ -147,14 +197,28 @@ describe('ProductsService', () => {
     );
   });
 
+  it('attaches to the winner when two requests race for the same url', async () => {
+    prisma.watch.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    prisma.watch.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(watchRow);
+
+    await expect(
+      service.create(USER_ID, { url: pendingProduct.url, notificationsEnabled: true }),
+    ).resolves.toMatchObject({ status: ProductStatus.ACTIVE });
+
+    expect(changedetection.deleteWatch).toHaveBeenCalledWith('watch-1');
+    expect(prisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ watchId: watchRow.id }) }),
+    );
+  });
+
   describe('detail', () => {
     it('returns histories oldest-first and events newest-first', async () => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.ACTIVE,
-        store,
-        watchBinding: { externalWatchId: 'watch-1', fetchMode: 'HTTP' },
-      });
+      prisma.product.findFirst.mockResolvedValue(boundProduct());
       prisma.$transaction.mockResolvedValue([
         [
           { price: new Prisma.Decimal(90), currency: 'TRY', observedAt: new Date('2026-08-10') },
@@ -164,34 +228,32 @@ describe('ProductsService', () => {
         [{ type: 'EXTRACTION_ERROR', code: 'X', message: 'm', createdAt: new Date('2026-08-10') }],
       ]);
 
-      const detail = await service.detail(pendingProduct.id);
+      const detail = await service.detail(USER_ID, pendingProduct.id);
 
       expect(detail.watchId).toBe('watch-1');
       expect(detail.priceHistory.map((point) => point.price)).toEqual([100, 90]);
       expect(detail.recentEvents).toHaveLength(1);
     });
 
-    it('throws PRODUCT_NOT_FOUND for an unknown id', async () => {
-      prisma.product.findUnique.mockResolvedValue(null);
+    it('throws PRODUCT_NOT_FOUND for a product owned by someone else', async () => {
+      prisma.product.findFirst.mockResolvedValue(null);
 
-      await expect(service.detail(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.detail(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'PRODUCT_NOT_FOUND',
       });
+      expect(prisma.product.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: pendingProduct.id, userId: USER_ID } }),
+      );
     });
   });
 
   describe('update', () => {
     beforeEach(() => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.ACTIVE,
-        store,
-        watchBinding: { id: 'binding-1', externalWatchId: 'watch-1' },
-      });
+      prisma.product.findFirst.mockResolvedValue(boundProduct());
     });
 
     it('pauses the remote watch before writing the local status', async () => {
-      await service.update(pendingProduct.id, { status: ProductStatus.PAUSED });
+      await service.update(USER_ID, pendingProduct.id, { status: ProductStatus.PAUSED });
 
       expect(changedetection.updateWatch).toHaveBeenCalledWith('watch-1', { paused: true });
       expect(changedetection.updateWatch.mock.invocationCallOrder[0]).toBeLessThan(
@@ -199,23 +261,32 @@ describe('ProductsService', () => {
       );
     });
 
+    it('leaves the shared watch running while another owner keeps it active', async () => {
+      prisma.product.count.mockResolvedValue(1);
+
+      await service.update(USER_ID, pendingProduct.id, { status: ProductStatus.PAUSED });
+
+      expect(changedetection.updateWatch).not.toHaveBeenCalled();
+      expect(prisma.product.update).toHaveBeenCalled();
+    });
+
     it('leaves the local status untouched when the remote pause fails', async () => {
       changedetection.updateWatch.mockRejectedValueOnce(new Error('unavailable'));
 
       await expect(
-        service.update(pendingProduct.id, { status: ProductStatus.PAUSED }),
+        service.update(USER_ID, pendingProduct.id, { status: ProductStatus.PAUSED }),
       ).rejects.toMatchObject({ code: 'CHANGEDETECTION_UNAVAILABLE' });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
 
     it('does not call changedetection for field-only updates', async () => {
-      await service.update(pendingProduct.id, { targetPrice: 1799.9 });
+      await service.update(USER_ID, pendingProduct.id, { targetPrice: 1799.9 });
 
       expect(changedetection.updateWatch).not.toHaveBeenCalled();
     });
 
     it('rejects an empty body', async () => {
-      await expect(service.update(pendingProduct.id, {})).rejects.toMatchObject({
+      await expect(service.update(USER_ID, pendingProduct.id, {})).rejects.toMatchObject({
         code: 'INVALID_REQUEST',
       });
     });
@@ -223,20 +294,27 @@ describe('ProductsService', () => {
 
   describe('remove', () => {
     beforeEach(() => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        store,
-        watchBinding: { id: 'binding-1', externalWatchId: 'watch-1' },
-      });
+      prisma.product.findFirst.mockResolvedValue(boundProduct({ status: ProductStatus.PENDING }));
     });
 
     it('deletes the remote watch before the database row', async () => {
-      await service.remove(pendingProduct.id);
+      await service.remove(USER_ID, pendingProduct.id);
 
       expect(changedetection.deleteWatch).toHaveBeenCalledWith('watch-1');
       expect(changedetection.deleteWatch.mock.invocationCallOrder[0]).toBeLessThan(
         prisma.product.delete.mock.invocationCallOrder[0] ?? Infinity,
       );
+      expect(prisma.watch.deleteMany).toHaveBeenCalled();
+    });
+
+    it('keeps the shared watch when another owner still tracks the url', async () => {
+      prisma.product.count.mockResolvedValue(1);
+
+      await service.remove(USER_ID, pendingProduct.id);
+
+      expect(changedetection.deleteWatch).not.toHaveBeenCalled();
+      expect(prisma.product.delete).toHaveBeenCalled();
+      expect(prisma.watch.deleteMany).not.toHaveBeenCalled();
     });
 
     it('treats an already-missing watch as success', async () => {
@@ -244,7 +322,7 @@ describe('ProductsService', () => {
         new ChangeDetectionClientError('WATCH_NOT_FOUND', 'yok', false, 404),
       );
 
-      await expect(service.remove(pendingProduct.id)).resolves.toBeUndefined();
+      await expect(service.remove(USER_ID, pendingProduct.id)).resolves.toBeUndefined();
       expect(prisma.product.delete).toHaveBeenCalled();
     });
 
@@ -253,7 +331,7 @@ describe('ProductsService', () => {
         new ChangeDetectionClientError('CHANGEDETECTION_UNAVAILABLE', 'hata', true, 502),
       );
 
-      await expect(service.remove(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.remove(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'CHANGEDETECTION_UNAVAILABLE',
       });
       expect(prisma.product.delete).not.toHaveBeenCalled();
@@ -262,24 +340,21 @@ describe('ProductsService', () => {
 
   describe('check', () => {
     beforeEach(() => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.ACTIVE,
-        store,
-        watchBinding: { id: 'binding-1', externalWatchId: 'watch-1' },
-      });
-      prisma.watchBinding.updateMany.mockResolvedValue({ count: 1 });
+      prisma.product.findFirst.mockResolvedValue(boundProduct());
+      prisma.watch.updateMany.mockResolvedValue({ count: 1 });
     });
 
     it('triggers a check when the cooldown has elapsed', async () => {
-      await expect(service.check(pendingProduct.id)).resolves.toMatchObject({ accepted: true });
+      await expect(service.check(USER_ID, pendingProduct.id)).resolves.toMatchObject({
+        accepted: true,
+      });
       expect(changedetection.triggerCheck).toHaveBeenCalledWith('watch-1');
     });
 
     it('throws CHECK_ALREADY_RUNNING when the cooldown claim loses', async () => {
-      prisma.watchBinding.updateMany.mockResolvedValue({ count: 0 });
+      prisma.watch.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.check(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.check(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'CHECK_ALREADY_RUNNING',
       });
       expect(changedetection.triggerCheck).not.toHaveBeenCalled();
@@ -288,36 +363,26 @@ describe('ProductsService', () => {
     it('does not fail the product when the trigger call fails', async () => {
       changedetection.triggerCheck.mockRejectedValueOnce(new Error('unavailable'));
 
-      await expect(service.check(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.check(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'CHANGEDETECTION_UNAVAILABLE',
       });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
 
     it('rejects a paused product', async () => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.PAUSED,
-        store,
-        watchBinding: { id: 'binding-1', externalWatchId: 'watch-1' },
-      });
+      prisma.product.findFirst.mockResolvedValue(boundProduct({ status: ProductStatus.PAUSED }));
 
-      await expect(service.check(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.check(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'PRODUCT_PAUSED',
       });
     });
   });
 
   describe('retry', () => {
-    it('reuses an existing binding', async () => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.FAILED,
-        store,
-        watchBinding: { id: 'binding-1', externalWatchId: 'watch-1' },
-      });
+    it('reuses an existing watch', async () => {
+      prisma.product.findFirst.mockResolvedValue(boundProduct({ status: ProductStatus.FAILED }));
 
-      await expect(service.retry(pendingProduct.id)).resolves.toMatchObject({
+      await expect(service.retry(USER_ID, pendingProduct.id)).resolves.toMatchObject({
         status: ProductStatus.ACTIVE,
       });
       expect(changedetection.createWatch).not.toHaveBeenCalled();
@@ -325,28 +390,20 @@ describe('ProductsService', () => {
     });
 
     it('provisions a new watch without re-validating the URL', async () => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.FAILED,
-        store,
-        watchBinding: null,
-      });
+      prisma.product.findFirst.mockResolvedValue(
+        boundProduct({ status: ProductStatus.FAILED, watchId: null, watch: null }),
+      );
 
-      await service.retry(pendingProduct.id);
+      await service.retry(USER_ID, pendingProduct.id);
 
       expect(urlSafety.validateAndNormalize).not.toHaveBeenCalled();
       expect(changedetection.createWatch).toHaveBeenCalled();
     });
 
     it('rejects a product that is not FAILED', async () => {
-      prisma.product.findUnique.mockResolvedValue({
-        ...pendingProduct,
-        status: ProductStatus.ACTIVE,
-        store,
-        watchBinding: null,
-      });
+      prisma.product.findFirst.mockResolvedValue(boundProduct({ watchId: null, watch: null }));
 
-      await expect(service.retry(pendingProduct.id)).rejects.toMatchObject({
+      await expect(service.retry(USER_ID, pendingProduct.id)).rejects.toMatchObject({
         code: 'PRODUCT_NOT_RETRYABLE',
       });
     });

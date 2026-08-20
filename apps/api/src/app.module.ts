@@ -4,6 +4,7 @@ import { RequestIdMiddleware } from './common/logging/request-id.middleware';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { environmentValidationSchema } from './config/environment.validation';
+import { AuthModule } from './modules/auth/auth.module';
 import { BaselineModule } from './modules/baseline/baseline.module';
 import { ChangedetectionModule } from './modules/changedetection/changedetection.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
@@ -24,11 +25,13 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
       validationSchema: environmentValidationSchema,
     }),
     ScheduleModule.forRoot(),
-    // Guard global olarak bağlanmaz: webhook uç noktası changedetection.io
-    // tek seferde çok sayıda watch bildirebildiği için kısıtlanmamalıdır.
+    // Throttler guard global olarak bağlanmaz: webhook uç noktası
+    // changedetection.io tek seferde çok sayıda watch bildirebildiği için
+    // kısıtlanmamalıdır. Auth guard ise AuthModule içinde global bağlanır.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 30 }]),
     DatabaseModule,
     HealthModule,
+    AuthModule,
     ChangedetectionModule,
     ProductsModule,
     DashboardModule,

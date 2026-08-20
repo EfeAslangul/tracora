@@ -8,13 +8,14 @@ const RECENT_DROP_LIMIT = 5;
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async summary() {
+  async summary(userId: string) {
     const [totalProducts, activeProducts, failedProducts, drops] = await Promise.all([
-      this.prisma.product.count(),
-      this.prisma.product.count({ where: { status: ProductStatus.ACTIVE } }),
-      this.prisma.product.count({ where: { status: ProductStatus.FAILED } }),
+      this.prisma.product.count({ where: { userId } }),
+      this.prisma.product.count({ where: { userId, status: ProductStatus.ACTIVE } }),
+      this.prisma.product.count({ where: { userId, status: ProductStatus.FAILED } }),
       this.prisma.product.findMany({
         where: {
+          userId,
           previousPrice: { not: null },
           currentPrice: { not: null, lt: this.prisma.product.fields.previousPrice },
         },

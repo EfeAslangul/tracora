@@ -3,10 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { ApiHeader, ApiNoContentResponse, ApiTags } from '@nestjs/swagger';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { DomainException } from '../../common/errors/domain.exception';
+import { Public } from '../auth/public.decorator';
 import { ChangedetectionObservationDto } from './dto/changedetection-observation.dto';
 import { ObservationService } from './observation.service';
 
 @ApiTags('webhooks')
+// changedetection.io kullanıcı oturumu taşıyamaz; kimlik doğrulaması
+// x-webhook-secret ile bu controller'ın içinde yapılır.
+@Public()
 @Controller('webhooks')
 export class WebhooksController {
   constructor(

@@ -51,28 +51,39 @@ describe('Product lifecycle integration', () => {
     jest.clearAllMocks();
     changedetection.createWatch.mockResolvedValue({ id: 'watch-new' });
     await prisma.product.deleteMany();
+    await prisma.watch.deleteMany();
     await prisma.store.deleteMany();
+    await prisma.user.deleteMany();
+    userId = (await prisma.user.create({ data: { firebaseUid: 'user-a' } })).id;
   });
 
-  async function seed(status: ProductStatus, withBinding = true) {
-    const store = await prisma.store.create({
-      data: { hostname: 'shop.example', name: 'shop.example' },
+  let userId = '';
+
+  async function seed(status: ProductStatus, withWatch = true) {
+    const store = await prisma.store.upsert({
+      where: { hostname: 'shop.example' },
+      create: { hostname: 'shop.example', name: 'shop.example' },
+      update: {},
     });
+    const watch = withWatch
+      ? await prisma.watch.create({
+          data: {
+            storeId: store.id,
+            normalizedUrl: 'https://shop.example/product',
+            externalWatchId: 'watch-1',
+            requestedFetchMode: WatchFetchMode.AUTO,
+            fetchMode: WatchFetchMode.HTTP,
+          },
+        })
+      : null;
     return prisma.product.create({
       data: {
+        userId,
         storeId: store.id,
+        watchId: watch?.id,
         url: 'https://shop.example/product',
         normalizedUrl: 'https://shop.example/product',
         status,
-        watchBinding: withBinding
-          ? {
-              create: {
-                externalWatchId: 'watch-1',
-                requestedFetchMode: WatchFetchMode.AUTO,
-                fetchMode: WatchFetchMode.HTTP,
-              },
-            }
-          : undefined,
       },
     });
   }
@@ -80,8 +91,8 @@ describe('Product lifecycle integration', () => {
   it('enforces the manual check cooldown across consecutive calls', async () => {
     const product = await seed(ProductStatus.ACTIVE);
 
-    await expect(service.check(product.id)).resolves.toMatchObject({ accepted: true });
-    await expect(service.check(product.id)).rejects.toMatchObject({
+    await expect(service.check(userId, product.id)).resolves.toMatchObject({ accepted: true });
+    await expect(service.check(userId, product.id)).rejects.toMatchObject({
       code: 'CHECK_ALREADY_RUNNING',
     });
     expect(changedetection.triggerCheck).toHaveBeenCalledTimes(1);
@@ -89,17 +100,17 @@ describe('Product lifecycle integration', () => {
 
   it('allows a check again once the cooldown window has passed', async () => {
     const product = await seed(ProductStatus.ACTIVE);
-    await prisma.watchBinding.update({
-      where: { productId: product.id },
-      data: { lastSyncAt: new Date(Date.now() - 120_000) },
+    await prisma.watch.updateMany({
+      where: { externalWatchId: 'watch-1' },
+      data: { lastTriggeredAt: new Date(Date.now() - 120_000) },
     });
 
-    await expect(service.check(product.id)).resolves.toMatchObject({ accepted: true });
+    await expect(service.check(userId, product.id)).resolves.toMatchObject({ accepted: true });
   });
 
   it('keeps a paused product paused when a webhook observation arrives', async () => {
     const product = await seed(ProductStatus.ACTIVE);
-    await service.update(product.id, { status: ProductStatus.PAUSED });
+    await service.update(userId, product.id, { status: ProductStatus.PAUSED });
     expect(changedetection.updateWatch).toHaveBeenCalledWith('watch-1', { paused: true });
 
     await observations.process({
@@ -117,16 +128,17 @@ describe('Product lifecycle integration', () => {
     await expect(prisma.priceSnapshot.count()).resolves.toBe(1);
   });
 
-  it('retries a FAILED product without a binding by provisioning a new watch', async () => {
+  it('retries a FAILED product without a watch by provisioning a new one', async () => {
     const product = await seed(ProductStatus.FAILED, false);
 
-    await expect(service.retry(product.id)).resolves.toMatchObject({
+    await expect(service.retry(userId, product.id)).resolves.toMatchObject({
       status: ProductStatus.ACTIVE,
     });
-    const binding = await prisma.watchBinding.findUniqueOrThrow({
-      where: { productId: product.id },
+    const stored = await prisma.product.findUniqueOrThrow({
+      where: { id: product.id },
+      include: { watch: true },
     });
-    expect(binding.externalWatchId).toBe('watch-new');
+    expect(stored.watch?.externalWatchId).toBe('watch-new');
   });
 
   it('cascades related rows when a product is deleted', async () => {
@@ -140,11 +152,11 @@ describe('Product lifecycle integration', () => {
       inStock: true,
     });
 
-    await service.remove(product.id);
+    await service.remove(userId, product.id);
 
     expect(changedetection.deleteWatch).toHaveBeenCalledWith('watch-1');
     await expect(prisma.product.count()).resolves.toBe(0);
-    await expect(prisma.watchBinding.count()).resolves.toBe(0);
+    await expect(prisma.watch.count()).resolves.toBe(0);
     await expect(prisma.priceSnapshot.count()).resolves.toBe(0);
     await expect(prisma.stockSnapshot.count()).resolves.toBe(0);
   });

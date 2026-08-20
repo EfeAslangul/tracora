@@ -34,11 +34,26 @@ Secret SHA-256 özetleri üzerinden sabit zamanlı karşılaştırılır. Değer
 - `inStock` çıkarılamıyorsa alan gönderilmeyebilir.
 - Product adı ve URL webhook'tan güvenilir veri olarak alınmaz; `watchId` ile PostgreSQL kaydı kullanılır.
 
+## Fan-out
+
+Watch, ürünün değil **URL'nin** varlığıdır: aynı normalize URL'yi izleyen tüm kullanıcıların
+ürünleri tek `Watch` satırına ve tek changedetection.io watch'ına bağlanır. Gelen bir gözlem
+o watch'a bağlı **her ürüne ayrı ayrı** uygulanır.
+
+- Tekillik ürün başınadır: `PriceSnapshot`/`StockSnapshot` için `(productId, sourceEventKey)`,
+  outbox için `(productId, sourceEventKey, channel, type)`. Aynı webhook'un yeniden teslimi
+  yine idempotenttir.
+- Hedef fiyat, bildirim tercihi ve `PAUSED` durumu ürün alanları olduğu için karar her sahip
+  için bağımsız verilir.
+- Bildirim yalnız sahibinin `telegramChatId` alanı doluysa üretilir.
+- Watch'ın hiç ürünü kalmamışsa `404` yerine `204` dönülür ve `ORPHANED_WATCH` olayı yazılır;
+  aksi halde changedetection.io sonsuza kadar yeniden dener.
+
 ## Baseline
 
 Pinned changedetection.io `0.49.0` ilk snapshot'ta notification üretmez. NestJS baseline worker:
 
-1. İlk kontrol tetiklenmiş ve fiyatı olmayan ACTIVE binding'leri okur.
+1. Baseline bekleyen (ACTIVE ve fiyatı olmayan) en az bir ürünü olan watch'ları okur.
 2. Watch REST durumundaki `restock.price/currency/in_stock` alanlarını normalize eder.
 3. `generic/AUTO` HTTP sonucu başarısızsa watch'ı yalnız bir kez BROWSER moda geçirir.
 4. Başarılı sonucu aynı observation service'e yollar.
@@ -62,5 +77,5 @@ Worker startup sırasında kontrol tetiklemez; yalnız mevcut watch durumunu oku
 - `204`: işlendi veya daha önce işlenmiş
 - `400`: payload/sürüm geçersiz
 - `401`: secret yanlış
-- `404`: watch eşleşmesi yok
+- `404`: watch eşleşmesi yok (sahibi kalmamış watch bu değil, `204` döner)
 - `500`: geçici DB/sunucu hatası

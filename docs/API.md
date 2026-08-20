@@ -43,7 +43,80 @@ Sunucu tarafında her istek tek satırlık yapılandırılmış bir log üretir:
 `route` ham URL değil eşleşen rota kalıbıdır; ürün id'si, query değerleri, başlıklar ve
 gövdeler loglanmaz.
 
-## 2. Product Status
+## 2. Kimlik Doğrulama
+
+`/api/v1` altındaki bütün uç noktalar Firebase Auth ID token ister:
+
+```text
+Authorization: Bearer <firebase-id-token>
+```
+
+Token istemcide Firebase SDK ile alınır (e-posta/şifre, Apple ile Giriş, Google ile Giriş);
+sunucu `firebase-admin` ile doğrular. Ayrı bir kayıt/giriş ucu **yoktur**: hesap Firebase
+tarafında açılır, ilk kimliği doğrulanmış istek yerel `User` kaydını oluşturur.
+
+Kimlik doğrulaması istemeyen tek iki uç:
+
+| Uç                               | Neden                                                                                   |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `GET /health`                    | Liveness probe; kimlik taşıyamaz.                                                       |
+| `POST /webhooks/changedetection` | changedetection.io kullanıcı oturumu taşımaz; kimlik `x-webhook-secret` ile doğrulanır. |
+
+Hata durumları:
+
+| Kod                   | HTTP | Anlamı                                                                                                      |
+| --------------------- | ---- | ----------------------------------------------------------------------------------------------------------- |
+| `UNAUTHENTICATED`     | 401  | Başlık yok, `Bearer` değil, ya da token geçersiz/süresi dolmuş.                                             |
+| `TOKEN_REVOKED`       | 401  | Token iptal edilmiş ya da hesap devre dışı; yeniden giriş gerekir.                                          |
+| `EMAIL_NOT_VERIFIED`  | 403  | `AUTH_REQUIRE_EMAIL_VERIFIED=true` iken doğrulanmamış e-posta/şifre hesabı. Apple/Google girişleri muaftır. |
+| `AUTH_NOT_CONFIGURED` | 503  | Sunucuda Firebase kimlik bilgileri tanımlı değil. Sunucu hatasıdır; istemci yeniden giriş denememeli.       |
+
+Veriler kullanıcı bazında ayrıktır. Başka bir kullanıcının ürünü `403` değil **`404`
+`PRODUCT_NOT_FOUND`** döner: yetki hatası kaynağın var olduğunu sızdırırdı.
+
+## 3. Kullanıcı
+
+### GET /me
+
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "emailVerified": true,
+  "displayName": "Efe",
+  "signInProvider": "password",
+  "onboarding": { "completedAt": "2026-08-18T12:00:00Z" },
+  "telegram": { "configured": true }
+}
+```
+
+`telegramChatId` ham olarak dönmez; istemcinin ihtiyacı olan tek bilgi bildirimlerin
+gidebilir durumda olup olmadığıdır.
+
+### PATCH /me
+
+```json
+{
+  "displayName": "Efe",
+  "telegramChatId": "4242"
+}
+```
+
+Her iki alan da isteğe bağlıdır, en az biri gönderilmelidir; `null` göndermek alanı temizler.
+`telegramChatId` yalnız sayısal bir Telegram chat kimliği olabilir.
+
+### DELETE /me
+
+```text
+204 No Content
+```
+
+Kullanıcının tüm ürünlerini siler (paylaşılan watch'lar yalnız son sahibi ayrılınca
+changedetection.io'dan kaldırılır) ve `User` kaydını düşürür. Firebase tarafındaki hesabı
+istemci kendi siler. App Store 5.1.1(v), hesap açan uygulamalarda uygulama içi hesap
+silmeyi zorunlu kılar.
+
+## 4. Product Status
 
 ```text
 PENDING
@@ -54,7 +127,7 @@ FAILED
 
 `ACTIVE`, watch'ın başarıyla oluşturulduğunu belirtir. İlk kontrol tamamlanana kadar fiyat alanları `null` olabilir.
 
-## 3. Health
+## 5. Health
 
 ### GET /health
 
@@ -69,7 +142,7 @@ FAILED
 }
 ```
 
-## 4. İlk Kurulum
+## 6. İlk Kurulum
 
 ### GET /setup/status
 
@@ -87,7 +160,12 @@ Frontend her açılışta bu endpoint'i çağırır.
 }
 ```
 
-`required=false` ise frontend onboarding göstermeden ürün listesine gider.
+`required=false` ise frontend onboarding göstermeden ürün listesine gider. Onboarding
+durumu **kullanıcı başınadır** (`User.onboardingCompletedAt`); yeni bir kullanıcı, sunucuda
+başka kullanıcılar kurulumu tamamlamış olsa bile kendi onboarding'ini görür.
+
+`telegram.configured`, sunucudaki bot token'ı ile kullanıcının kendi `telegramChatId`
+alanının birlikte dolu olması anlamına gelir.
 
 ### POST /setup
 
@@ -131,7 +209,7 @@ Response `201 Created`:
 - Hiçbiri oluşturulamazsa `422` döner ve setup tamamlanmaz.
 - Daha önce tamamlanmış setup isteği `409 SETUP_ALREADY_COMPLETED` döner. Yeni ürünler `POST /products` ile eklenir.
 
-## 5. Products
+## 7. Products
 
 ### GET /products
 
@@ -297,7 +375,7 @@ doğrulaması tekrarlanmaz — aksi halde geçici bir DNS hatası `UNSAFE_PRODUC
 
 Response `GET /products` ile aynı ürün gövdesidir.
 
-## 6. Webhook
+## 8. Webhook
 
 ### POST /webhooks/changedetection
 
@@ -307,7 +385,8 @@ Header:
 x-webhook-secret
 ```
 
-Payload fiyat/stok olayı değil gözlemi taşır. `PRICE_CHANGED`, `TARGET_REACHED` ve `RESTOCKED` kararlarını NestJS mevcut snapshot ile karşılaştırarak üretir. Ayrıntılı sözleşme `docs/WEBHOOK_CONTRACT.md` içindedir.
+Bir watch birden çok kullanıcının ürününe bağlı olabilir; gelen tek gözlem hepsine
+uygulanır. Payload fiyat/stok olayı değil gözlemi taşır. `PRICE_CHANGED`, `TARGET_REACHED` ve `RESTOCKED` kararlarını NestJS mevcut snapshot ile karşılaştırarak üretir. Ayrıntılı sözleşme `docs/WEBHOOK_CONTRACT.md` içindedir.
 
 Başarılı response:
 
@@ -315,7 +394,7 @@ Başarılı response:
 204 No Content
 ```
 
-## 7. Dashboard
+## 9. Dashboard
 
 ### GET /dashboard
 
@@ -344,7 +423,7 @@ Başarılı response:
 `recentPriceDrops`, `currentPrice < previousPrice` olan ürünlerden son başarılı kontrol
 zamanına göre en yeni 5 kayıttır.
 
-## 8. System
+## 10. System
 
 ### GET /system/health
 
@@ -369,8 +448,15 @@ zamanına göre en yeni 5 kayıttır.
 `telegram` değerleri `ready`, `not_configured`, `degraded`. `lastReconciliation` günlük
 reconciliation cron'u ilk kez çalışana kadar `null` döner.
 
-## 9. Minimum Hata Kodları
+`failedProducts` ve `outbox` sayaçları çağıran kullanıcının kendi kayıtlarını sayar;
+`database`, `changedetection` ve `lastReconciliation` sunucu geneli bilgilerdir.
 
+## 11. Minimum Hata Kodları
+
+- `UNAUTHENTICATED`
+- `TOKEN_REVOKED`
+- `EMAIL_NOT_VERIFIED`
+- `AUTH_NOT_CONFIGURED`
 - `INVALID_PRODUCT_URL`
 - `UNSAFE_PRODUCT_URL`
 - `PRODUCT_ALREADY_EXISTS`
@@ -387,4 +473,5 @@ reconciliation cron'u ilk kez çalışana kadar `null` döner.
 - `INVALID_WEBHOOK_SECRET`
 - `INVALID_WEBHOOK_PAYLOAD`
 - `TELEGRAM_NOT_CONFIGURED`
+- `TELEGRAM_CHAT_NOT_CONFIGURED` (kullanıcı Telegram sohbetini bağlamamış; bildirim yeniden denenmez)
 - `RATE_LIMITED` (uygulama kısıtı: `POST /products/:id/check` için 60 sn'de 10 istek; ayrıca changedetection.io/Telegram 429'ları)

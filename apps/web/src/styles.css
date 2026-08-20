@@ -53,6 +53,19 @@ a:focus-visible {
   text-decoration: none;
 }
 
+.session {
+  align-items: center;
+  color: #c7d0d9;
+  display: inline-flex;
+  font-size: 0.82rem;
+  gap: 12px;
+}
+
+.session .button {
+  min-height: 36px;
+  padding: 6px 12px;
+}
+
 .system-status {
   align-items: center;
   color: #c7d0d9;
@@ -198,7 +211,9 @@ label {
 }
 
 input[type='url'],
-input[type='number'] {
+input[type='number'],
+input[type='email'],
+input[type='password'] {
   background: #fff;
   border: 1px solid #bcc6d0;
   border-radius: 8px;
