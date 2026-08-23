@@ -15,11 +15,13 @@ import kotlinx.coroutines.launch
 
 data class ProductListUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val products: List<ProductListItem> = emptyList(),
     val errorMessage: String? = null,
     val addProductError: String? = null,
     val isSubmitting: Boolean = false,
     val retryingIds: Set<String> = emptySet(),
+    val checkIntervalSeconds: Int = 86_400,
 )
 
 /**
@@ -37,6 +39,12 @@ class ProductListViewModel(private val repository: ProductRepository) : ViewMode
 
     private fun startPolling() {
         viewModelScope.launch {
+            try {
+                val status = repository.getSetupStatus()
+                _uiState.value = _uiState.value.copy(checkIntervalSeconds = status.defaultCheckIntervalSeconds)
+            } catch (error: Exception) {
+                // Kart bazlı geri sayım için varsayılan (86400s) kullanılır; kritik değil.
+            }
             while (isActive) {
                 val awaitingBaseline = refresh()
                 delay(if (awaitingBaseline) 3_000 else 60_000)
@@ -63,6 +71,15 @@ class ProductListViewModel(private val repository: ProductRepository) : ViewMode
                 errorMessage = "Ürünler alınamadı. Biraz sonra tekrar deneyin.",
             )
             false
+        }
+    }
+
+    /** Pull-to-refresh: an explicit, user-initiated refresh outside the polling cadence. */
+    fun refreshManually() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            refresh()
+            _uiState.value = _uiState.value.copy(isRefreshing = false)
         }
     }
 

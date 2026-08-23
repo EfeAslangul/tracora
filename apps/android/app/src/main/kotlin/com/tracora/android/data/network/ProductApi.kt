@@ -5,6 +5,9 @@ import com.tracora.android.data.model.CreateProductRequest
 import com.tracora.android.data.model.ProductDetail
 import com.tracora.android.data.model.ProductListItem
 import com.tracora.android.data.model.ProductListResponse
+import com.tracora.android.data.model.SetupRequest
+import com.tracora.android.data.model.SetupResult
+import com.tracora.android.data.model.SetupStatus
 import com.tracora.android.data.model.UpdateProductRequest
 import retrofit2.Response
 import retrofit2.http.Body
@@ -43,4 +46,13 @@ interface ProductApi {
 
     @POST("products/{id}/retry")
     suspend fun retryProduct(@Path("id") id: String): Response<ProductListItem>
+
+    @GET("setup/status")
+    suspend fun getSetupStatus(): Response<SetupStatus>
+
+    @POST("setup")
+    suspend fun postSetup(@Body input: SetupRequest): Response<SetupResult>
+
+    @DELETE("me")
+    suspend fun deleteMe(): Response<Unit>
 }

@@ -62,6 +62,12 @@ export class NotificationWorkerService implements OnModuleInit, OnModuleDestroy 
             await this.fail(delivery.id, delivery.attempts, error);
           }
         }
+      } catch (error) {
+        // Bir sonraki tur tekrar dener; burada atılan bir hata (ör. geçici bağlantı
+        // havuzu zaman aşımı) tüm süreci unhandled rejection ile düşürmemeli.
+        logJson(this.logger, 'error', 'notification_worker_round_failed', {
+          error: error instanceof Error ? error.name : 'UnknownError',
+        });
       } finally {
         this.running = false;
       }

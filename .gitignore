@@ -17,3 +17,12 @@ apps/android/.cxx/
 *.aab
 .idea/
 *.iml
+
+# iOS (apps/ios)
+apps/ios/build/
+
+# Firebase Admin service account (backend secret, never commit — client
+# config files like GoogleService-Info.plist / google-services.json are
+# committed on purpose: this project uses one shared Firebase project)
+*firebase-adminsdk*.json
+serviceAccountKey.json

@@ -127,3 +127,51 @@ data class ApiErrorBody(
     val details: JsonObject? = null,
     @SerialName("requestId") val requestId: String = "",
 )
+
+@Serializable
+data class TelegramStatus(
+    val configured: Boolean,
+    val status: String? = null,
+)
+
+@Serializable
+data class SetupStatus(
+    val required: Boolean,
+    val completedAt: String? = null,
+    val defaultCheckIntervalSeconds: Int,
+    val telegram: TelegramStatus,
+)
+
+@Serializable
+data class SetupProductInput(
+    val url: String,
+    val targetPrice: Double? = null,
+    val notificationsEnabled: Boolean,
+)
+
+@Serializable
+data class SetupRequest(
+    val products: List<SetupProductInput>,
+)
+
+@Serializable
+data class SetupCreatedItem(
+    val id: String,
+    val url: String,
+    val status: ProductStatus,
+)
+
+@Serializable
+data class SetupFailedItem(
+    val url: String,
+    val code: String,
+    val message: String,
+)
+
+@Serializable
+data class SetupResult(
+    val completed: Boolean,
+    val completedAt: String? = null,
+    val created: List<SetupCreatedItem> = emptyList(),
+    val failed: List<SetupFailedItem> = emptyList(),
+)

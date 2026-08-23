@@ -60,6 +60,12 @@ export class BaselineSyncService implements OnModuleInit, OnModuleDestroy {
             });
           });
         }
+      } catch (error) {
+        // Bir sonraki tur tekrar dener; burada atılan bir hata (ör. geçici bağlantı
+        // havuzu zaman aşımı) tüm süreci unhandled rejection ile düşürmemeli.
+        logJson(this.logger, 'error', 'baseline_sync_round_failed', {
+          error: error instanceof Error ? error.name : 'UnknownError',
+        });
       } finally {
         this.running = false;
       }
@@ -87,7 +93,7 @@ export class BaselineSyncService implements OnModuleInit, OnModuleDestroy {
       });
       await this.prisma.watch.update({
         where: { id: watch.id },
-        data: { lastSyncAt: new Date() },
+        data: { lastSyncAt: remote.lastCheckedAt },
       });
       return;
     }
@@ -97,9 +103,14 @@ export class BaselineSyncService implements OnModuleInit, OnModuleDestroy {
       watch.fetchMode === WatchFetchMode.HTTP
     ) {
       await this.changedetection.updateWatch(watch.externalWatchId, { fetchMode: 'BROWSER' });
+      // `remote.lastCheckedAt` (not a local `new Date()`) — this is compared against
+      // changedetection's own clock on the next tick (line 78). Stamping it with our
+      // wall clock let a fast BROWSER retry's remote timestamp fall at-or-before this
+      // value (clock skew / same-second truncation), permanently short-circuiting the
+      // guard above and leaving the watch stuck ACTIVE with no price and no failure.
       await this.prisma.watch.update({
         where: { id: watch.id },
-        data: { fetchMode: WatchFetchMode.BROWSER, lastSyncAt: new Date() },
+        data: { fetchMode: WatchFetchMode.BROWSER, lastSyncAt: remote.lastCheckedAt },
       });
       try {
         await this.changedetection.triggerCheck(watch.externalWatchId);

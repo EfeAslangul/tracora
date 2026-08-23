@@ -1,28 +1,26 @@
 package com.tracora.android.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
-// Loosely matches apps/web/src/styles.css's palette (primary #216869, error #9c2f2f).
-private val TracoraPrimary = Color(0xFF216869)
-private val TracoraError = Color(0xFF9C2F2F)
-
-private val LightColors = lightColorScheme(
-    primary = TracoraPrimary,
-    error = TracoraError,
-)
-
-private val DarkColors = darkColorScheme(
-    primary = TracoraPrimary,
-    error = TracoraError,
+// Direction 1b ("energetic iris") is dark-only per the imported mock — no light variant exists,
+// so unlike a typical Material app this doesn't branch on `isSystemInDarkTheme()`.
+private val TracoraDarkColors = darkColorScheme(
+    primary = TracoraColors.Accent,
+    onPrimary = TracoraColors.AccentOnFill,
+    background = TracoraColors.Background,
+    onBackground = TracoraColors.Ink,
+    surface = TracoraColors.Surface,
+    onSurface = TracoraColors.Ink,
+    surfaceVariant = TracoraColors.SurfaceElevated,
+    onSurfaceVariant = TracoraColors.SecondaryText,
+    outline = TracoraColors.Border,
+    error = TracoraColors.Danger,
+    onError = TracoraColors.AccentOnFill,
 )
 
 @Composable
 fun TracoraTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = TracoraDarkColors, typography = TracoraTypography, content = content)
 }

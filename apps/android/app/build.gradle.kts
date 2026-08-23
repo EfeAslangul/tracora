@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -69,11 +70,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    // Native-Compose charting for the price history line chart.
-    // Verify this is still the latest stable release when opening the project — pin here was chosen
-    // without live Maven access.
-    implementation("com.patrykandpatrick.vico:compose:1.15.0")
-    implementation("com.patrykandpatrick.vico:compose-m3:1.15.0")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

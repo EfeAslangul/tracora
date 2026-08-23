@@ -7,6 +7,10 @@ import com.tracora.android.data.model.ProductDetail
 import com.tracora.android.data.model.ProductListItem
 import com.tracora.android.data.model.ProductListResponse
 import com.tracora.android.data.model.ProductStatus
+import com.tracora.android.data.model.SetupProductInput
+import com.tracora.android.data.model.SetupRequest
+import com.tracora.android.data.model.SetupResult
+import com.tracora.android.data.model.SetupStatus
 import com.tracora.android.data.model.UpdateProductRequest
 import com.tracora.android.data.network.ApiException
 import com.tracora.android.data.network.ProductApi
@@ -37,6 +41,15 @@ class ProductRepository(private val api: ProductApi) {
     suspend fun checkProduct(id: String): CheckAcceptedResponse = unwrap(api.checkProduct(id))
 
     suspend fun retryProduct(id: String): ProductListItem = unwrap(api.retryProduct(id))
+
+    suspend fun getSetupStatus(): SetupStatus = unwrap(api.getSetupStatus())
+
+    suspend fun postSetup(products: List<SetupProductInput>): SetupResult =
+        unwrap(api.postSetup(SetupRequest(products)))
+
+    suspend fun deleteMe() {
+        unwrap(api.deleteMe())
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> unwrap(response: Response<T>): T {

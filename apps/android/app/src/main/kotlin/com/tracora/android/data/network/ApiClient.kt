@@ -1,6 +1,7 @@
 package com.tracora.android.data.network
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.tracora.android.data.auth.FirebaseAuthService
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -13,8 +14,9 @@ object ApiClient {
         explicitNulls = false
     }
 
-    fun create(baseUrl: String, debug: Boolean): ProductApi {
+    fun create(baseUrl: String, debug: Boolean, authService: FirebaseAuthService): ProductApi {
         val client = OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor(authService))
             .apply {
                 if (debug) {
                     addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
